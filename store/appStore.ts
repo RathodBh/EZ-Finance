@@ -44,7 +44,7 @@ interface AppState {
   setLocked: (locked: boolean) => void;
   
   // Auth Actions
-  login: (mock?: boolean) => Promise<void>;
+  login: () => Promise<void>;
   logout: () => Promise<void>;
 
   // Data Refresh Actions
@@ -96,6 +96,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       // 3. Load all DB data if logged in
       if (signedIn) {
         await get().refreshAllData();
+        // Auto-trigger sync on startup
+        get().triggerSync();
       }
     } catch (e) {
       console.error('App initialization failed:', e);
@@ -107,12 +109,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
   setLocked: (locked) => set({ appLocked: locked }),
 
-  login: async (mock = false) => {
+  login: async () => {
     set({ authLoading: true });
     try {
-      const session = mock ? await AuthService.mockSignIn() : await AuthService.signIn();
+      const session = await AuthService.signIn();
       set({ user: session, authLoading: false, appLocked: false });
       await get().refreshAllData();
+      // Auto-trigger sync on login to pull down cloud data
+      get().triggerSync();
     } catch (e) {
       console.error('Login error:', e);
       set({ authLoading: false });

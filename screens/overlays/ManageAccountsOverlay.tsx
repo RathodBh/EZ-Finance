@@ -41,7 +41,7 @@ export default function ManageAccountsOverlay() {
       });
 
       await refreshAccounts();
-      closeOverlay();
+      router.back();
     } catch (e: any) {
       Alert.alert('Error', `Failed to create account: ${e.message}`);
     }

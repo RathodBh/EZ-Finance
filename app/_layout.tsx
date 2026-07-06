@@ -20,7 +20,7 @@ export default function RootLayout() {
   useEffect(() => {
     if (authLoading || !dbInitialized) return;
 
-    const inTabsGroup = segments[0] === '(tabs)' || segments.length === 0;
+    const inTabsGroup = segments[0] === '(tabs)' || (segments as any).length === 0;
 
     if (!user && inTabsGroup) {
       // Not logged in -> redirect to onboarding login path

@@ -58,6 +58,38 @@ const deleteSecureItem = async (key: string) => {
   }
 };
 
+let gisLoaded = false;
+
+const loadGisScript = (): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined') {
+      resolve();
+      return;
+    }
+    if (gisLoaded) {
+      resolve();
+      return;
+    }
+    if (document.querySelector('script[src="https://accounts.google.com/gsi/client"]')) {
+      gisLoaded = true;
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      gisLoaded = true;
+      resolve();
+    };
+    script.onerror = (err) => {
+      reject(err);
+    };
+    document.body.appendChild(script);
+  });
+};
+
 export const AuthService = {
   /**
    * Check if a user session is active.
@@ -104,12 +136,84 @@ export const AuthService = {
   },
 
   /**
+   * Google Sign-in on Web using Google Identity Services (GSI/GIS) Token Client
+   */
+  async signInWeb(): Promise<UserSession> {
+    await loadGisScript();
+
+    return new Promise((resolve, reject) => {
+      try {
+        if (!(window as any).google || !(window as any).google.accounts) {
+          throw new Error('Google Identity Services library failed to load');
+        }
+
+        const client = (window as any).google.accounts.oauth2.initTokenClient({
+          client_id: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+          scope: 'email profile openid https://www.googleapis.com/auth/drive.appdata',
+          callback: async (tokenResponse: any) => {
+            if (tokenResponse.error) {
+              reject(tokenResponse);
+              return;
+            }
+            if (tokenResponse.access_token) {
+              try {
+                // Fetch user profile using access token
+                const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                  headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
+                });
+
+                if (!res.ok) {
+                  throw new Error(`Failed to fetch user profile: ${res.statusText}`);
+                }
+
+                const data = await res.json();
+                const session: UserSession = {
+                  id: data.sub,
+                  email: data.email,
+                  name: data.name || 'User',
+                  photoUrl: data.picture || null,
+                };
+
+                // Persist session locally
+                await this.persistSession(session);
+                await setSecureItem('googleAccessToken', tokenResponse.access_token);
+
+                // Sync user profile with local DB
+                await UserRepository.upsertProfile({
+                  id: session.id,
+                  googleId: session.id,
+                  email: session.email,
+                  displayName: session.name,
+                  photoUrl: session.photoUrl || undefined,
+                });
+
+                resolve(session);
+              } catch (err) {
+                reject(err);
+              }
+            } else {
+              reject(new Error('Access token not returned from Google login'));
+            }
+          },
+        });
+
+        client.requestAccessToken({ prompt: 'consent' });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  },
+
+  /**
    * Trigger Google Sign-In flow.
    */
   async signIn(): Promise<UserSession> {
-    if (Platform.OS === 'web' || !GoogleSignin) {
-      console.log('Redirecting to developer Mock sign-in (Web environment/sandbox)...');
-      return this.mockSignIn();
+    if (Platform.OS === 'web') {
+      return this.signInWeb();
+    }
+
+    if (!GoogleSignin) {
+      throw new Error('Google Sign-In SDK is not loaded on this native device');
     }
 
     try {
@@ -137,28 +241,6 @@ export const AuthService = {
   },
 
   /**
-   * Triggers developer mock sign-in for testing purposes.
-   * Useful when Google API setup on the local build is pending.
-   */
-  async mockSignIn(): Promise<UserSession> {
-    const mockSession = {
-      id: 'mock_user_123',
-      email: 'financeflow-developer@example.com',
-      name: 'FinanceFlow Dev User',
-      photoUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150',
-    };
-    await this.persistSession(mockSession);
-    await UserRepository.upsertProfile({
-      id: mockSession.id,
-      googleId: mockSession.id,
-      email: mockSession.email,
-      displayName: mockSession.name,
-      photoUrl: mockSession.photoUrl,
-    });
-    return mockSession;
-  },
-
-  /**
    * Sign out and clear stored session.
    */
   async signOut(): Promise<void> {
@@ -171,6 +253,7 @@ export const AuthService = {
     }
     await deleteSecureItem('googleAccountId');
     await deleteSecureItem('userSession');
+    await deleteSecureItem('googleAccessToken');
   },
 
   mapGoogleUser(googleUser: any): UserSession {

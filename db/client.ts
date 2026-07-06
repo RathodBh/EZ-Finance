@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import { drizzle } from 'drizzle-orm/expo-sqlite';
 import * as schema from './schema';
 
-const DB_NAME = 'financeflow.db';
+const DB_NAME = 'ezfinance.db';
 
 export let expoDb: any = null;
 export let db: any = null;
@@ -34,9 +34,9 @@ export async function initDb() {
 
   try {
     // Check if the 'users' table exists as an indicator of database state
-    const tableCheck = expoDb.getFirstSync<{ count: number }>(
+    const tableCheck = expoDb.getFirstSync(
       "SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='users';"
-    );
+    ) as { count: number } | null;
 
     if (!tableCheck || tableCheck.count === 0) {
       console.log('Database tables not found. Running database migrations...');

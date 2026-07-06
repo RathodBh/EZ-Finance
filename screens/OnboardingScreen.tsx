@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Image, Dimensions } from 'react-native';
+import { View, StyleSheet, Image, Dimensions, Alert } from 'react-native';
 import { Text, Button, ActivityIndicator, useTheme } from 'react-native-paper';
 import { useAppStore } from '../store/appStore';
 import { ThemeColors } from '../styles/theme';
@@ -12,15 +12,14 @@ export default function OnboardingScreen() {
 
   const handleGoogleLogin = async () => {
     try {
-      await login(false); // Google Authenticated login
-    } catch (e) {
-      // If setup credentials are not configured, offer developer mock mode
-      console.warn('Google Auth configuration may be missing. Defaulting to Mock mode for sandbox testing.');
+      await login(); // Google Authenticated login
+    } catch (e: any) {
+      console.error('Google Sign-In Error:', e);
+      Alert.alert(
+        'Login Failed',
+        'Unable to authenticate with Google. Please verify your client ID and configuration, then try again.'
+      );
     }
-  };
-
-  const handleMockLogin = async () => {
-    await login(true); // Instant offline sandbox credentials
   };
 
   return (
@@ -29,11 +28,11 @@ export default function OnboardingScreen() {
       <View style={styles.heroContainer}>
         <View style={[styles.glowRing, { borderColor: activeColors.primary + '20' }]}>
           <View style={[styles.glowInnerRing, { borderColor: activeColors.primary + '40', backgroundColor: activeColors.primary + '08' }]}>
-            <Text style={[styles.brandText, { color: activeColors.primary }]}>FF</Text>
+            <Text style={[styles.brandText, { color: activeColors.primary }]}>EZ</Text>
           </View>
         </View>
         
-        <Text style={[styles.appName, { color: activeColors.text }]}>FinanceFlow</Text>
+        <Text style={[styles.appName, { color: activeColors.text }]}>EZ Finance</Text>
         <Text style={[styles.appTagline, { color: activeColors.textSecondary }]}>
           The Ultimate Offline-First Personal Finance Vault
         </Text>
@@ -44,29 +43,16 @@ export default function OnboardingScreen() {
         {authLoading ? (
           <ActivityIndicator size="large" color={activeColors.primary} style={styles.loader} />
         ) : (
-          <>
-            <Button
-              mode="contained"
-              icon="google"
-              onPress={handleGoogleLogin}
-              style={[styles.button, { backgroundColor: activeColors.text }]}
-              labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
-              contentStyle={styles.buttonContent}
-            >
-              Sign In with Google
-            </Button>
-
-            <Button
-              mode="outlined"
-              icon="xml"
-              onPress={handleMockLogin}
-              style={[styles.button, { borderColor: activeColors.primary }]}
-              labelStyle={{ color: activeColors.primary }}
-              contentStyle={styles.buttonContent}
-            >
-              Start Offline Sandbox
-            </Button>
-          </>
+          <Button
+            mode="contained"
+            icon="google"
+            onPress={handleGoogleLogin}
+            style={[styles.button, { backgroundColor: activeColors.text }]}
+            labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
+            contentStyle={styles.buttonContent}
+          >
+            Sign In with Google
+          </Button>
         )}
         
         <Text style={[styles.footerText, { color: activeColors.textSecondary }]}>

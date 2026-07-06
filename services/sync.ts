@@ -16,6 +16,22 @@ if (Platform.OS !== 'web') {
   }
 }
 
+const getSecureItem = async (key: string): Promise<string | null> => {
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(key);
+    }
+    return null;
+  } else {
+    try {
+      const SecureStore = require('expo-secure-store');
+      return await SecureStore.getItemAsync(key);
+    } catch {
+      return null;
+    }
+  }
+};
+
 // Supported sync tables list
 const SYNCABLE_TABLES = [
   { name: 'accounts', table: schema.accounts },
@@ -44,30 +60,27 @@ export const SyncService = {
       return { success: false, uploaded: 0, downloaded: 0, error: 'No active Google account session' };
     }
 
-    if (Platform.OS === 'web') {
-      console.log('[Sync] Simulating sync in Web environment...');
-      // Simulated delay
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      return { success: true, uploaded: 0, downloaded: 0 };
-    }
-
     let recordsUploaded = 0;
     let recordsDownloaded = 0;
     let success = false;
     let errorMessage: string | undefined;
 
     try {
-      let accessToken: string;
+      let accessToken: string | null = null;
       let mockMode = false;
 
       if (googleAccountId === 'mock_user_123') {
         mockMode = true;
         accessToken = 'mock_token';
+      } else if (Platform.OS === 'web') {
+        accessToken = await getSecureItem('googleAccessToken');
       } else if (GoogleSignin) {
         const tokens = await GoogleSignin.getTokens();
-        accessToken = tokens.accessToken;
-      } else {
-        throw new Error('Google Sign-In SDK is not loaded');
+        accessToken = tokens?.accessToken || null;
+      }
+
+      if (!accessToken) {
+        throw new Error('Google access token is not available. Please sign in again.');
       }
 
       console.log(`Starting sync process (${syncType}). Mock mode: ${mockMode}`);
@@ -202,7 +215,7 @@ export const SyncService = {
         .select()
         .from(table)
         .where(eq(table.id, id))
-        .then(res => res[0]);
+        .then((res: any) => res[0]);
 
       if (!localRecord) {
         // Insert missing record

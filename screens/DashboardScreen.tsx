@@ -16,7 +16,8 @@ export default function DashboardScreen() {
     categories, 
     theme, 
     triggerSync, 
-    syncLoading 
+    syncLoading,
+    user
   } = useAppStore();
 
   const activeColors = ThemeColors[theme];
@@ -55,8 +56,10 @@ export default function DashboardScreen() {
       {/* Top Header Bar */}
       <View style={styles.headerBar}>
         <View>
-          <Text style={[styles.welcomeText, { color: activeColors.textSecondary }]}>Overview</Text>
-          <Text style={[styles.title, { color: activeColors.text }]}>FinanceFlow</Text>
+          <Text style={[styles.welcomeText, { color: activeColors.textSecondary }]}>
+            Welcome, {user?.name ? user.name.split(' ')[0] : 'User'}
+          </Text>
+          <Text style={[styles.title, { color: activeColors.text }]}>EZ Finance</Text>
         </View>
         <IconButton
           icon={syncLoading ? 'sync' : 'cloud-sync-outline'}

@@ -62,14 +62,14 @@ export default function MoreScreen() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.setAttribute('download', 'financeflow_transactions.csv');
+        link.setAttribute('download', 'ezfinance_transactions.csv');
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         return;
       }
 
-      const fileUri = `${FileSystem.cacheDirectory}financeflow_transactions.csv`;
+      const fileUri = `${FileSystem.cacheDirectory}ezfinance_transactions.csv`;
       await FileSystem.writeAsStringAsync(fileUri, csvString);
       
       if (await Sharing.isAvailableAsync()) {
@@ -96,14 +96,14 @@ export default function MoreScreen() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.setAttribute('download', 'financeflow_backup.json');
+        link.setAttribute('download', 'ezfinance_backup.json');
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         return;
       }
 
-      const fileUri = `${FileSystem.cacheDirectory}financeflow_backup.json`;
+      const fileUri = `${FileSystem.cacheDirectory}ezfinance_backup.json`;
       await FileSystem.writeAsStringAsync(fileUri, backupString);
       
       if (await Sharing.isAvailableAsync()) {

@@ -28,7 +28,7 @@ export default function LockScreen() {
 
       if (hasHardware && isEnrolled) {
         const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: 'Unlock FinanceFlow Vault',
+          promptMessage: 'Unlock EZ Finance Vault',
           fallbackLabel: 'Use PIN',
           disableDeviceFallback: false,
         });

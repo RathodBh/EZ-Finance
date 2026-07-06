@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "FinApp",
-    "slug": "FinApp",
-    "scheme": "finapp",
+    "name": "EZ Finance",
+    "slug": "ez-finance",
+    "scheme": "ezfinance",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

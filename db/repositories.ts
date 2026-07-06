@@ -349,7 +349,7 @@ export const TransactionRepository = {
     }
 
     const meta = await prepareSyncMetadata();
-    return db.transaction(async (tx) => {
+    return db.transaction(async (tx: any) => {
       const inserted = await tx
         .insert(schema.transactions)
         .values({
@@ -401,7 +401,7 @@ export const TransactionRepository = {
 
     const meta = await prepareSyncMetadata(existing.version + 1);
     
-    return db.transaction(async (tx) => {
+    return db.transaction(async (tx: any) => {
       const updated = await tx
         .update(schema.transactions)
         .set({
@@ -454,7 +454,7 @@ export const TransactionRepository = {
 
     const meta = await prepareSyncMetadata(existing.version + 1);
     
-    return db.transaction(async (tx) => {
+    return db.transaction(async (tx: any) => {
       const deleted = await tx
         .update(schema.transactions)
         .set({

@@ -1,4 +1,4 @@
-# FinanceFlow — React Native Finance Management App
+# EZ Finance — React Native Finance Management App
 ## Implementation Plan (React Native Edition)
 
 > A premium, offline-first personal finance management application built with **React Native (Expo)**, inspired by MyMoney.
