@@ -4,12 +4,18 @@ import { Text, Searchbar, Chip, IconButton, Card } from 'react-native-paper';
 import { useAppStore } from '../store/appStore';
 import { TransactionRepository } from '../db/repositories';
 import { ThemeColors } from '../styles/theme';
+import DatePickerModal from '../components/DatePickerModal';
 
 export default function TransactionsScreen() {
   const { transactions, accounts, categories, theme, refreshTransactions, refreshAccounts } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE' | 'TRANSFER'>('ALL');
   
+  // Date range filters
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
   const activeColors = ThemeColors[theme];
 
   // 1. Filter and Search Transactions locally
@@ -17,6 +23,16 @@ export default function TransactionsScreen() {
     return transactions.filter((t) => {
       // Filter by type
       if (activeFilter !== 'ALL' && t.type !== activeFilter) return false;
+
+      // Filter by date range
+      if (startDate) {
+        const startMs = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime();
+        if (t.date < startMs) return false;
+      }
+      if (endDate) {
+        const endMs = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59, 999).getTime();
+        if (t.date > endMs) return false;
+      }
 
       // Filter by search note/merchant/paymentMethod
       if (searchQuery.trim().length > 0) {
@@ -32,7 +48,7 @@ export default function TransactionsScreen() {
 
       return true;
     });
-  }, [transactions, searchQuery, activeFilter, categories, accounts]);
+  }, [transactions, searchQuery, activeFilter, categories, accounts, startDate, endDate]);
 
   const handleDeleteTx = (id: string) => {
     Alert.alert(
@@ -109,6 +125,37 @@ export default function TransactionsScreen() {
         ))}
       </View>
 
+      {/* Date Filter Row */}
+      <View style={styles.dateFilterRow}>
+        <TouchableOpacity
+          style={[styles.dateButton, { backgroundColor: activeColors.surface, borderColor: activeColors.border }]}
+          onPress={() => setShowDatePicker(true)}
+        >
+          <IconButton icon="calendar-month" size={18} iconColor={activeColors.primary} style={{ margin: 0 }} />
+          <Text style={{ color: (startDate || endDate) ? activeColors.text : activeColors.textSecondary, fontSize: 13, fontWeight: '500', marginLeft: 4 }}>
+            {startDate && endDate 
+              ? `${startDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+              : startDate
+                ? `From: ${startDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+                : 'Filter Date Range'
+            }
+          </Text>
+        </TouchableOpacity>
+
+        {(startDate || endDate) && (
+          <IconButton
+            icon="close-circle"
+            iconColor={activeColors.error}
+            size={22}
+            onPress={() => {
+              setStartDate(null);
+              setEndDate(null);
+            }}
+            style={{ margin: 0 }}
+          />
+        )}
+      </View>
+
       {/* Transactions List */}
       <FlatList
         data={filteredTransactions}
@@ -165,6 +212,20 @@ export default function TransactionsScreen() {
           );
         }}
       />
+
+      {/* Date Pickers */}
+      <DatePickerModal
+        visible={showDatePicker}
+        startDate={startDate}
+        endDate={endDate}
+        onSelectRange={(start, end) => {
+          setStartDate(start);
+          setEndDate(end);
+        }}
+        onClose={() => setShowDatePicker(false)}
+        title="Select Date Range"
+        activeColors={activeColors}
+      />
     </View>
   );
 }
@@ -190,11 +251,27 @@ const styles = StyleSheet.create({
   filterRow: {
     flexDirection: 'row',
     paddingHorizontal: 20,
-    marginBottom: 16,
+    marginBottom: 12,
     gap: 8,
   },
   chip: {
     borderRadius: 8,
+  },
+  dateFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 16,
+    gap: 8,
+  },
+  dateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    height: 38,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 8,
   },
   listContent: {
     paddingHorizontal: 20,

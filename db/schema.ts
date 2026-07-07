@@ -33,6 +33,7 @@ export const accounts = sqliteTable('accounts', {
   icon: text('icon'),
   color: text('color'),
   isActive: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
+  isDefault: integer('is_default', { mode: 'boolean' }).default(false).notNull(),
 });
 
 // Categories Table

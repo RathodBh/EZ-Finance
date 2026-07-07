@@ -15,9 +15,27 @@ export default function AddTransactionOverlay() {
   // Forms states
   const [type, setType] = useState<'INCOME' | 'EXPENSE' | 'TRANSFER'>('EXPENSE');
   const [amount, setAmount] = useState('');
-  const [accountId, setAccountId] = useState(accounts[0]?.id || '');
+
+  const defaultAccount = useMemo(() => accounts.find(a => a.isDefault) || accounts[0], [accounts]);
+  const [accountId, setAccountId] = useState(defaultAccount?.id || '');
   const [categoryId, setCategoryId] = useState(categories[0]?.id || '');
-  const [toAccountId, setToAccountId] = useState(accounts[1]?.id || '');
+  const [toAccountId, setToAccountId] = useState('');
+
+  React.useEffect(() => {
+    if (defaultAccount && !accountId) {
+      setAccountId(defaultAccount.id);
+    }
+  }, [defaultAccount]);
+
+  React.useEffect(() => {
+    if (accounts.length > 0 && !toAccountId) {
+      const otherAcc = accounts.find(a => a.id !== (accountId || defaultAccount?.id)) || accounts[1] || accounts[0];
+      if (otherAcc) {
+        setToAccountId(otherAcc.id);
+      }
+    }
+  }, [accounts, accountId]);
+
   const [note, setNote] = useState('');
   const [merchant, setMerchant] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('CARD');

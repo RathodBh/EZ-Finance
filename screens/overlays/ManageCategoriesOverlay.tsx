@@ -1,25 +1,78 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert, Modal, TouchableOpacity } from 'react-native';
-import { Text, Button, TextInput, IconButton, List, Surface } from 'react-native-paper';
+import { Text, Button, TextInput, IconButton, List, Surface, SegmentedButtons } from 'react-native-paper';
 import { useAppStore } from '../../store/appStore';
 import { CategoryRepository } from '../../db/repositories';
 import { ThemeColors } from '../../styles/theme';
-
 import { useRouter } from 'expo-router';
+
+const AVAILABLE_ICONS = [
+  // Finance & Money
+  'cash-multiple', 'bank', 'piggy-bank', 'wallet', 'coin', 'credit-card', 'trending-up', 'tag-outline',
+  // Food & Drink
+  'food', 'coffee', 'silverware-fork-knife',
+  // Shopping & Life
+  'cart', 'shopping', 'tshirt-crew', 'gift',
+  // Transport & Travel
+  'car', 'airplane', 'gas-station', 'subway',
+  // Entertainment & Hobby
+  'movie', 'gamepad-variant', 'music', 'ticket', 'dumbbell',
+  // Home & Bills
+  'home', 'lightning-bolt', 'water', 'phone', 'wifi',
+  // Healthcare & Education
+  'medical-bag', 'school', 'book-open-variant',
+  // Miscellaneous
+  'cog', 'shield-check', 'star', 'help-circle'
+];
+
+const CURATED_COLORS = [
+  '#EF4444', // Ruby Red
+  '#F59E0B', // Amber
+  '#10B981', // Emerald Green
+  '#3B82F6', // Blue
+  '#8B5CF6', // Purple
+  '#EC4899', // Pink
+  '#E2B85C', // Gold
+  '#4B5563', // Slate Gray
+];
 
 export default function ManageCategoriesOverlay() {
   const router = useRouter();
   const { categories, theme, refreshCategories } = useAppStore();
   const activeColors = ThemeColors[theme];
 
-  // Create form states
+  // List filter: Expense vs Income
+  const [listType, setListType] = useState<'EXPENSE' | 'INCOME'>('EXPENSE');
+
+  // Modal control
+  const [showModal, setShowModal] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<any | null>(null);
+
+  // Form states
   const [name, setName] = useState('');
   const [type, setType] = useState<'EXPENSE' | 'INCOME'>('EXPENSE');
+  const [icon, setIcon] = useState('tag-outline');
+  const [color, setColor] = useState('#EF4444');
 
-  // Edit states
-  const [editingCategory, setEditingCategory] = useState<any | null>(null);
-  const [editName, setEditName] = useState('');
-  const [showEditModal, setShowEditModal] = useState(false);
+  const filteredCategories = categories.filter(c => c.type === listType);
+
+  const handleOpenAdd = () => {
+    setEditingCategory(null);
+    setName('');
+    setType(listType); // preselect current active tab type
+    setIcon(listType === 'EXPENSE' ? 'tag-outline' : 'cash-multiple');
+    setColor(listType === 'EXPENSE' ? '#EF4444' : '#10B981');
+    setShowModal(true);
+  };
+
+  const handleOpenEdit = (category: any) => {
+    setEditingCategory(category);
+    setName(category.name);
+    setType(category.type);
+    setIcon(category.icon || (category.type === 'EXPENSE' ? 'tag-outline' : 'cash-multiple'));
+    setColor(category.color || (category.type === 'EXPENSE' ? '#EF4444' : '#10B981'));
+    setShowModal(true);
+  };
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -28,45 +81,33 @@ export default function ManageCategoriesOverlay() {
     }
 
     try {
-      await CategoryRepository.insert({
-        id: 'cat_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36),
-        name: name.trim(),
-        type,
-        icon: type === 'EXPENSE' ? 'tag-outline' : 'cash-multiple',
-        color: type === 'EXPENSE' ? '#EF4444' : '#10B981',
-        sortOrder: categories.length,
-        isHidden: false,
-        isArchived: false,
-      });
+      if (editingCategory) {
+        // Update existing category
+        await CategoryRepository.update(editingCategory.id, {
+          name: name.trim(),
+          type,
+          icon,
+          color,
+        });
+      } else {
+        // Insert new category
+        await CategoryRepository.insert({
+          id: 'cat_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36),
+          name: name.trim(),
+          type,
+          icon,
+          color,
+          sortOrder: categories.length,
+          isHidden: false,
+          isArchived: false,
+        });
+      }
 
       await refreshCategories();
+      setShowModal(false);
       setName('');
     } catch (e: any) {
-      Alert.alert('Error', `Failed to create category: ${e.message}`);
-    }
-  };
-
-  const handleOpenEdit = (category: any) => {
-    setEditingCategory(category);
-    setEditName(category.name);
-    setShowEditModal(true);
-  };
-
-  const handleUpdate = async () => {
-    if (!editName.trim()) {
-      Alert.alert('Validation Error', 'Please enter a name.');
-      return;
-    }
-
-    try {
-      await CategoryRepository.update(editingCategory.id, {
-        name: editName.trim(),
-      });
-      await refreshCategories();
-      setShowEditModal(false);
-      setEditingCategory(null);
-    } catch (e: any) {
-      Alert.alert('Error', `Failed to update category: ${e.message}`);
+      Alert.alert('Error', `Failed to save category: ${e.message}`);
     }
   };
 
@@ -83,7 +124,7 @@ export default function ManageCategoriesOverlay() {
             try {
               await CategoryRepository.delete(id);
               await refreshCategories();
-              setShowEditModal(false);
+              setShowModal(false);
               setEditingCategory(null);
             } catch (e: any) {
               Alert.alert('Error', `Failed to delete category: ${e.message}`);
@@ -100,111 +141,174 @@ export default function ManageCategoriesOverlay() {
       <View style={styles.header}>
         <IconButton icon="close" size={24} iconColor={activeColors.text} onPress={() => router.back()} />
         <Text style={[styles.title, { color: activeColors.text }]}>Manage Categories</Text>
-        <IconButton icon="plus" size={24} iconColor={activeColors.primary} onPress={handleSave} style={{ opacity: 0 }} />
+        <IconButton icon="plus" size={24} iconColor={activeColors.primary} onPress={handleOpenAdd} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.formContent}>
-        {/* Categories list */}
-        <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>Existing Categories (Tap to Edit/Delete)</Text>
-        
-        <View style={styles.listContainer}>
-          {categories.map((cat) => (
-            <List.Item
-              key={cat.id}
-              title={cat.name}
-              description={cat.type}
-              left={(props) => <List.Icon {...props} icon={cat.icon || 'tag'} color={cat.color || activeColors.primary} />}
-              onPress={() => handleOpenEdit(cat)}
-              right={(props) => <List.Icon {...props} icon="pencil-outline" color={activeColors.textSecondary} />}
-              style={[styles.catItem, { backgroundColor: activeColors.surface, borderColor: activeColors.border }]}
-              titleStyle={{ color: activeColors.text, fontWeight: 'bold' }}
-              descriptionStyle={{ color: activeColors.textSecondary }}
-            />
-          ))}
-        </View>
-
-        <View style={{ height: 1, backgroundColor: activeColors.border, marginVertical: 20 }} />
-
-        {/* Add new Category */}
-        <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>Create New Category</Text>
-
-        <TextInput
-          label="Category Name"
-          value={name}
-          onChangeText={setName}
-          mode="outlined"
-          activeOutlineColor={activeColors.primary}
-          textColor={activeColors.text}
-          style={[styles.input, { backgroundColor: activeColors.surface }]}
+      {/* Tab selection */}
+      <View style={styles.tabContainer}>
+        <SegmentedButtons
+          value={listType}
+          onValueChange={(val) => setListType(val as any)}
+          buttons={[
+            { value: 'EXPENSE', label: 'Expenses' },
+            { value: 'INCOME', label: 'Income' },
+          ]}
+          theme={{ colors: { secondaryContainer: activeColors.primary } }}
         />
+      </View>
 
-        <View style={styles.btnRow}>
-          <Button
-            mode={type === 'EXPENSE' ? 'contained' : 'outlined'}
-            onPress={() => setType('EXPENSE')}
-            style={styles.flexBtn}
-            theme={{ colors: { primary: activeColors.primary } }}
-          >
-            Expense
-          </Button>
-          <Button
-            mode={type === 'INCOME' ? 'contained' : 'outlined'}
-            onPress={() => setType('INCOME')}
-            style={styles.flexBtn}
-            theme={{ colors: { primary: activeColors.primary } }}
-          >
-            Income
-          </Button>
-        </View>
-
-        <Button
-          mode="contained"
-          onPress={handleSave}
-          style={[styles.saveBtn, { backgroundColor: activeColors.primary }]}
-          labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
-        >
-          Add Category
-        </Button>
+      <ScrollView contentContainerStyle={styles.listContent}>
+        <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>
+          {listType === 'EXPENSE' ? 'Expense Categories' : 'Income Categories'}
+        </Text>
+        
+        {filteredCategories.length === 0 ? (
+          <Surface style={[styles.emptyContainer, { backgroundColor: activeColors.surface, borderColor: activeColors.border }]} elevation={1}>
+            <Text style={{ color: activeColors.textSecondary, textAlign: 'center' }}>
+              No categories found. Tap '+' to create one.
+            </Text>
+          </Surface>
+        ) : (
+          <View style={styles.listContainer}>
+            {filteredCategories.map((cat) => (
+              <List.Item
+                key={cat.id}
+                title={cat.name}
+                left={(props) => (
+                  <IconButton 
+                    icon={cat.icon || 'tag'} 
+                    iconColor={cat.color || activeColors.primary} 
+                    style={{ backgroundColor: `${cat.color || activeColors.primary}15`, margin: 0 }}
+                  />
+                )}
+                onPress={() => handleOpenEdit(cat)}
+                right={(props) => <List.Icon {...props} icon="pencil-outline" color={activeColors.textSecondary} />}
+                style={[styles.catItem, { backgroundColor: activeColors.surface, borderColor: activeColors.border }]}
+                titleStyle={{ color: activeColors.text, fontWeight: 'bold' }}
+              />
+            ))}
+          </View>
+        )}
       </ScrollView>
 
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          EDIT / DELETE CATEGORY MODAL
-          ───────────────────────────────────────────────────────────────────────────── */}
-      <Modal visible={showEditModal} transparent animationType="slide">
-        <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowEditModal(false)}>
-          <Surface style={[styles.modalContent, { backgroundColor: activeColors.surface }]} elevation={5}>
-            <Text style={[styles.modalTitle, { color: activeColors.text }]}>Edit Category</Text>
-            
-            <TextInput
-              label="Category Name"
-              value={editName}
-              onChangeText={setEditName}
-              mode="outlined"
-              activeOutlineColor={activeColors.primary}
-              textColor={activeColors.text}
-              style={[styles.input, { backgroundColor: activeColors.background }]}
-            />
+      {/* Bottom Floating Add Button */}
+      <View style={[styles.bottomBar, { backgroundColor: activeColors.background }]}>
+        <Button
+          mode="contained"
+          icon="plus"
+          onPress={handleOpenAdd}
+          style={[styles.addBtn, { backgroundColor: activeColors.primary }]}
+          labelStyle={{ color: activeColors.background, fontWeight: 'bold', fontSize: 15 }}
+        >
+          Add New Category
+        </Button>
+      </View>
 
-            <View style={styles.modalActions}>
-              <Button
-                mode="contained"
-                onPress={handleUpdate}
-                style={[styles.modalBtn, { backgroundColor: activeColors.primary }]}
-                labelStyle={{ color: activeColors.background }}
-              >
-                Save Changes
-              </Button>
+      {/* ─────────────────────────────────────────────────────────────────────────────
+          ADD / EDIT CATEGORY MODAL
+          ───────────────────────────────────────────────────────────────────────────── */}
+      <Modal visible={showModal} transparent animationType="slide" onRequestClose={() => setShowModal(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowModal(false)}>
+          <TouchableOpacity activeOpacity={1} style={{ width: '100%' }}>
+            <Surface style={[styles.modalContent, { backgroundColor: activeColors.surface }]} elevation={5}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: activeColors.text }]}>
+                  {editingCategory ? 'Edit Category' : 'Create Category'}
+                </Text>
+                <IconButton icon="close" size={20} iconColor={activeColors.text} onPress={() => setShowModal(false)} />
+              </View>
               
-              <Button
+              <TextInput
+                label="Category Name"
+                value={name}
+                onChangeText={setName}
                 mode="outlined"
-                onPress={() => handleDelete(editingCategory.id)}
-                style={[styles.modalBtn, { borderColor: activeColors.error }]}
-                labelStyle={{ color: activeColors.error }}
-              >
-                Delete Category
-              </Button>
-            </View>
-          </Surface>
+                activeOutlineColor={activeColors.primary}
+                textColor={activeColors.text}
+                style={[styles.input, { backgroundColor: activeColors.surface }]}
+              />
+
+              {/* Type Select */}
+              <Text style={[styles.fieldLabel, { color: activeColors.textSecondary }]}>Category Type</Text>
+              <SegmentedButtons
+                value={type}
+                onValueChange={(val) => {
+                  const selectedVal = val as 'EXPENSE' | 'INCOME';
+                  setType(selectedVal);
+                  // Update default colors and icons if not customized
+                  if (!editingCategory) {
+                    setIcon(selectedVal === 'EXPENSE' ? 'tag-outline' : 'cash-multiple');
+                    setColor(selectedVal === 'EXPENSE' ? '#EF4444' : '#10B981');
+                  }
+                }}
+                buttons={[
+                  { value: 'EXPENSE', label: 'Expense' },
+                  { value: 'INCOME', label: 'Income' },
+                ]}
+                style={{ marginBottom: 16 }}
+                theme={{ colors: { secondaryContainer: activeColors.primary } }}
+              />
+
+              {/* Color Select */}
+              <Text style={[styles.fieldLabel, { color: activeColors.textSecondary }]}>Category Color</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.colorRow}>
+                {CURATED_COLORS.map(c => (
+                  <TouchableOpacity
+                    key={c}
+                    style={[
+                      styles.colorSwatch,
+                      { backgroundColor: c, borderColor: activeColors.text },
+                      color === c && styles.selectedColorSwatch
+                    ]}
+                    onPress={() => setColor(c)}
+                  />
+                ))}
+              </ScrollView>
+
+              {/* Icon Select */}
+              <Text style={[styles.fieldLabel, { color: activeColors.textSecondary }]}>Category Icon</Text>
+              <ScrollView style={styles.iconGridScroll}>
+                <View style={styles.iconGrid}>
+                  {AVAILABLE_ICONS.map(i => (
+                    <TouchableOpacity
+                      key={i}
+                      style={[
+                        styles.iconCell,
+                        { borderColor: activeColors.border },
+                        icon === i && { backgroundColor: `${color}20`, borderColor: color, borderWidth: 2 }
+                      ]}
+                      onPress={() => setIcon(i)}
+                    >
+                      <IconButton icon={i} iconColor={icon === i ? color : activeColors.textSecondary} size={22} style={{ margin: 0 }} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+
+              {/* Actions */}
+              <View style={styles.modalActions}>
+                <Button
+                  mode="contained"
+                  onPress={handleSave}
+                  style={[styles.modalSaveBtn, { backgroundColor: activeColors.primary }]}
+                  labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
+                >
+                  {editingCategory ? 'Save Changes' : 'Create Category'}
+                </Button>
+                
+                {editingCategory && (
+                  <Button
+                    mode="outlined"
+                    onPress={() => handleDelete(editingCategory.id)}
+                    style={[styles.modalDeleteBtn, { borderColor: activeColors.error }]}
+                    labelStyle={{ color: activeColors.error, fontWeight: 'bold' }}
+                  >
+                    Delete Category
+                  </Button>
+                )}
+              </View>
+            </Surface>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
     </View>
@@ -229,35 +333,45 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
-  formContent: {
+  tabContainer: {
+    paddingHorizontal: 20,
+    marginTop: 15,
+    marginBottom: 5,
+  },
+  listContent: {
     padding: 20,
-    paddingBottom: 60,
+    paddingBottom: 100,
   },
   sectionLabel: {
     fontSize: 15,
     fontWeight: 'bold',
     marginBottom: 12,
   },
+  emptyContainer: {
+    padding: 30,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   listContainer: {
     gap: 8,
   },
   catItem: {
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
+    paddingVertical: 2,
   },
-  input: {
-    marginBottom: 16,
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
-  btnRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
-  },
-  flexBtn: {
-    flex: 1,
-    borderRadius: 8,
-  },
-  saveBtn: {
+  addBtn: {
     height: 48,
     justifyContent: 'center',
     borderRadius: 12,
@@ -268,23 +382,75 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 20,
     paddingBottom: 40,
+    maxHeight: '90%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 15,
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  input: {
+    marginBottom: 10,
+  },
+  colorRow: {
+    gap: 12,
+    paddingVertical: 6,
+    marginBottom: 12,
+  },
+  colorSwatch: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 0,
+  },
+  selectedColorSwatch: {
+    borderWidth: 3,
+  },
+  iconGridScroll: {
+    maxHeight: 180,
+    marginBottom: 16,
+  },
+  iconGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  iconCell: {
+    width: '18%', // ~5 columns
+    aspectRatio: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modalActions: {
     flexDirection: 'column',
-    gap: 12,
+    gap: 10,
     marginTop: 10,
   },
-  modalBtn: {
-    height: 48,
+  modalSaveBtn: {
+    height: 46,
+    justifyContent: 'center',
+    borderRadius: 12,
+  },
+  modalDeleteBtn: {
+    height: 46,
     justifyContent: 'center',
     borderRadius: 12,
   },

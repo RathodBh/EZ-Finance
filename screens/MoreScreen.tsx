@@ -224,25 +224,48 @@ export default function MoreScreen() {
           ]}
         >
           <Card.Content style={styles.profileContent}>
-            <Avatar.Image
-              size={56}
-              source={{
-                uri:
-                  user.photoUrl ||
-                  "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150",
-              }}
-            />
+            {user.id === "offline_user" ? (
+              <Avatar.Text
+                size={56}
+                label={(user.name || 'O').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                style={{ backgroundColor: activeColors.primary }}
+                labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
+              />
+            ) : (
+              <Avatar.Image
+                size={56}
+                source={{
+                  uri:
+                    user.photoUrl ||
+                    "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150",
+                }}
+              />
+            )}
             <View style={styles.profileMeta}>
-              <Text style={[styles.profileName, { color: activeColors.text }]}>
-                {user.name}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <Text style={[styles.profileName, { color: activeColors.text }]}>
+                  {user.name}
+                </Text>
+                {user.id === "offline_user" && (
+                  <View style={{
+                    backgroundColor: 'rgba(226, 184, 92, 0.15)',
+                    paddingHorizontal: 8,
+                    paddingVertical: 2,
+                    borderRadius: 6,
+                    borderWidth: 1,
+                    borderColor: activeColors.primary,
+                  }}>
+                    <Text style={{ color: activeColors.primary, fontSize: 9, fontWeight: 'bold', letterSpacing: 0.5 }}>LOCAL VAULT</Text>
+                  </View>
+                )}
+              </View>
               <Text
                 style={[
                   styles.profileEmail,
                   { color: activeColors.textSecondary },
                 ]}
               >
-                {user.id === "offline_user" ? "Offline Mode" : user.email}
+                {user.id === "offline_user" ? "Offline Mode • Data saved on device" : user.email}
               </Text>
             </View>
           </Card.Content>
@@ -253,7 +276,7 @@ export default function MoreScreen() {
                 icon="google"
                 onPress={handleConnectGoogle}
                 style={{ flex: 1, backgroundColor: activeColors.primary }}
-                labelStyle={{ color: "#fff", fontWeight: "bold" }}
+                labelStyle={{ color: activeColors.background, fontWeight: "bold" }}
               >
                 Connect Google Account
               </Button>
@@ -406,6 +429,35 @@ export default function MoreScreen() {
             />
           )}
           onPress={() => router.push("/manage-categories")}
+          right={(props) => (
+            <List.Icon
+              {...props}
+              icon="chevron-right"
+              color={activeColors.textSecondary}
+            />
+          )}
+          style={[
+            styles.listItem,
+            {
+              backgroundColor: activeColors.surface,
+              borderColor: activeColors.border,
+            },
+          ]}
+          titleStyle={{ color: activeColors.text }}
+          descriptionStyle={{ color: activeColors.textSecondary }}
+        />
+
+        <List.Item
+          title="Manage Accounts"
+          description="Create, edit, and delete cash, bank, or card accounts"
+          left={(props) => (
+            <List.Icon
+              {...props}
+              icon="wallet-outline"
+              color={activeColors.text}
+            />
+          )}
+          onPress={() => router.push("/manage-accounts")}
           right={(props) => (
             <List.Icon
               {...props}

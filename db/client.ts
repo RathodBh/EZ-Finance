@@ -61,7 +61,8 @@ export async function initDb() {
             \`currency\` text DEFAULT 'USD' NOT NULL,
             \`icon\` text,
             \`color\` text,
-            \`is_active\` integer DEFAULT 1 NOT NULL
+            \`is_active\` integer DEFAULT 1 NOT NULL,
+            \`is_default\` integer DEFAULT 0 NOT NULL
           );
         `);
 
@@ -402,11 +403,9 @@ export async function initDb() {
 
         // Seed default accounts
         expoDb.execSync(`
-          INSERT INTO accounts (id, name, type, balance, opening_balance, currency, icon, color, is_active, created_at, updated_at, device_id)
+          INSERT INTO accounts (id, name, type, balance, opening_balance, currency, icon, color, is_active, is_default, created_at, updated_at, device_id)
           VALUES 
-            ('acc_cash', 'Cash Wallet', 'CASH', 500, 500, 'USD', 'wallet', '#10B981', 1, ${now}, ${now}, '${devId}'),
-            ('acc_bank', 'Chase Bank', 'BANK', 3200, 3200, 'USD', 'bank', '#3B82F6', 1, ${now}, ${now}, '${devId}'),
-            ('acc_credit', 'Sapphire Card', 'CREDIT_CARD', -150, 0, 'USD', 'credit-card-outline', '#EF4444', 1, ${now}, ${now}, '${devId}');
+            ('acc_cash', 'Cash Wallet', 'CASH', 0, 0, 'USD', 'wallet', '#10B981', 1, 1, ${now}, ${now}, '${devId}');
         `);
 
         // Seed default categories
@@ -419,21 +418,19 @@ export async function initDb() {
             ('cat_rent', 'Rent', 'EXPENSE', 'home-outline', '#8B5CF6', 3, 0, 0, ${now}, ${now}, '${devId}'),
             ('cat_shopping', 'Shopping', 'EXPENSE', 'shopping-outline', '#EF4444', 4, 0, 0, ${now}, ${now}, '${devId}');
         `);
-
-        // Seed default transactions
-        expoDb.execSync(`
-          INSERT INTO transactions (id, amount, type, account_id, category_id, date, note, merchant, paymentMethod, is_recurring, is_favorite, created_at, updated_at, device_id)
-          VALUES 
-            ('tx_seed_1', 3500, 'INCOME', 'acc_bank', 'cat_salary', ${now - 5 * 24 * 3600 * 1000}, 'Monthly Paycheck', 'Google LLC', 'TRANSFER', 0, 0, ${now}, ${now}, '${devId}'),
-            ('tx_seed_2', 120, 'EXPENSE', 'acc_bank', 'cat_groceries', ${now - 3 * 24 * 3600 * 1000}, 'Weekly food groceries', 'Walmart', 'CARD', 0, 0, ${now}, ${now}, '${devId}'),
-            ('tx_seed_3', 30, 'EXPENSE', 'acc_cash', 'cat_eating', ${now - 1 * 24 * 3600 * 1000}, 'Dinner at Diner', 'Joey Diners', 'CASH', 0, 0, ${now}, ${now}, '${devId}'),
-            ('tx_seed_4', 150, 'EXPENSE', 'acc_credit', 'cat_shopping', ${now}, 'Winter Jacket', 'Zara Store', 'CARD', 0, 0, ${now}, ${now}, '${devId}');
-        `);
       });
 
       console.log('Database tables successfully created!');
     } else {
       console.log('Database tables already exist. Skipping migrations.');
+      try {
+        expoDb.execSync(`ALTER TABLE \`accounts\` ADD COLUMN \`is_default\` integer DEFAULT 0 NOT NULL;`);
+        // Set default flag to Cash Wallet if no accounts are default yet
+        expoDb.execSync(`UPDATE \`accounts\` SET \`is_default\` = 1 WHERE \`id\` = 'acc_cash';`);
+        console.log('Database migration successful: Added is_default column.');
+      } catch (err) {
+        // Column already exists, safe to ignore
+      }
     }
   } catch (error) {
     console.error('Critical: Database initialization failed:', error);
@@ -451,9 +448,7 @@ function ensureWebSeeds() {
 
   if (!localStorage.getItem('ff_accounts')) {
     const defaultAccounts = [
-      { id: 'acc_cash', name: 'Cash Wallet', type: 'CASH', balance: 500, openingBalance: 500, currency: 'USD', icon: 'wallet', color: '#10B981', isActive: true, createdAt: now, updatedAt: now, deviceId: seedId },
-      { id: 'acc_bank', name: 'Chase Bank', type: 'BANK', balance: 3200, openingBalance: 3200, currency: 'USD', icon: 'bank', color: '#3B82F6', isActive: true, createdAt: now, updatedAt: now, deviceId: seedId },
-      { id: 'acc_credit', name: 'Sapphire Card', type: 'CREDIT_CARD', balance: -150, openingBalance: 0, currency: 'USD', icon: 'credit-card-outline', color: '#EF4444', isActive: true, createdAt: now, updatedAt: now, deviceId: seedId },
+      { id: 'acc_cash', name: 'Cash Wallet', type: 'CASH', balance: 0, openingBalance: 0, currency: 'USD', icon: 'wallet', color: '#10B981', isActive: true, isDefault: true, createdAt: now, updatedAt: now, deviceId: seedId },
     ];
     localStorage.setItem('ff_accounts', JSON.stringify(defaultAccounts));
   }
@@ -470,13 +465,7 @@ function ensureWebSeeds() {
   }
 
   if (!localStorage.getItem('ff_transactions')) {
-    const defaultTransactions = [
-      { id: 'tx_seed_1', amount: 3500, type: 'INCOME', accountId: 'acc_bank', categoryId: 'cat_salary', date: now - 5 * 24 * 3600 * 1000, note: 'Monthly Paycheck', merchant: 'Google LLC', paymentMethod: 'TRANSFER', isRecurring: false, isFavorite: false, createdAt: now, updatedAt: now, deviceId: seedId },
-      { id: 'tx_seed_2', amount: 120, type: 'EXPENSE', accountId: 'acc_bank', categoryId: 'cat_groceries', date: now - 3 * 24 * 3600 * 1000, note: 'Weekly food groceries', merchant: 'Walmart', paymentMethod: 'CARD', isRecurring: false, isFavorite: false, createdAt: now, updatedAt: now, deviceId: seedId },
-      { id: 'tx_seed_3', amount: 30, type: 'EXPENSE', accountId: 'acc_cash', categoryId: 'cat_eating', date: now - 1 * 24 * 3600 * 1000, note: 'Dinner at Diner', merchant: 'Joey Diners', paymentMethod: 'CASH', isRecurring: false, isFavorite: false, createdAt: now, updatedAt: now, deviceId: seedId },
-      { id: 'tx_seed_4', amount: 150, type: 'EXPENSE', accountId: 'acc_credit', categoryId: 'cat_shopping', date: now, note: 'Winter Jacket', merchant: 'Zara Store', paymentMethod: 'CARD', isRecurring: false, isFavorite: false, createdAt: now, updatedAt: now, deviceId: seedId },
-    ];
-    localStorage.setItem('ff_transactions', JSON.stringify(defaultTransactions));
+    localStorage.setItem('ff_transactions', JSON.stringify([]));
   }
 
   if (!localStorage.getItem('ff_budgets')) {

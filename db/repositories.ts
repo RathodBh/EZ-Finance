@@ -210,6 +210,41 @@ export const AccountRepository = {
       .where(eq(schema.accounts.id, id))
       .returning();
   },
+
+  async setDefault(id: string) {
+    if (Platform.OS === 'web') {
+      const accountsList = getWebList('accounts');
+      const updatedList = accountsList.map((a) => {
+        if (a.id === id) {
+          return { ...a, isDefault: true, version: (a.version || 1) + 1, isSynced: false, syncStatus: 'PENDING', updatedAt: Date.now() };
+        } else if (a.isDefault) {
+          return { ...a, isDefault: false, version: (a.version || 1) + 1, isSynced: false, syncStatus: 'PENDING', updatedAt: Date.now() };
+        }
+        return a;
+      });
+      saveWebList('accounts', updatedList);
+      return;
+    }
+
+    const allAccounts = await db.query.accounts.findMany({
+      where: isNull(schema.accounts.deletedAt),
+    });
+
+    for (const acc of allAccounts) {
+      const isTarget = acc.id === id;
+      if (acc.isDefault !== isTarget) {
+        const meta = await prepareSyncMetadata(acc.version + 1);
+        await db
+          .update(schema.accounts)
+          .set({
+            isDefault: isTarget,
+            ...meta,
+            createdAt: acc.createdAt,
+          } as any)
+          .where(eq(schema.accounts.id, acc.id));
+      }
+    }
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
