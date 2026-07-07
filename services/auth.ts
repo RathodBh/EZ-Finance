@@ -240,6 +240,18 @@ export const AuthService = {
     }
   },
 
+  async signInOffline(name: string): Promise<UserSession> {
+    const session: UserSession = {
+      id: 'offline_user',
+      email: '',
+      name: name,
+      photoUrl: null
+    };
+    await this.persistSession(session);
+    await setSecureItem('googleAccountId', 'offline_user');
+    return session;
+  },
+
   /**
    * Sign out and clear stored session.
    */

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { Platform, Alert } from 'react-native';
 import { AuthService, UserSession } from '../services/auth';
 import { 
   AccountRepository, 
@@ -20,6 +21,7 @@ interface AppState {
   theme: 'light' | 'dark';
   dbInitialized: boolean;
   appLocked: boolean;
+  isBootstrapping: boolean;
   
   // Auth Session State
   user: UserSession | null;
@@ -37,14 +39,19 @@ interface AppState {
   syncLoading: boolean;
   lastSyncTime: number | null;
 
+  autoSyncEnabled: boolean;
+
   // Core Actions
   initApp: () => Promise<void>;
   setTab: (tab: AppTab) => void;
-  toggleTheme: () => void;
+  toggleTheme: () => Promise<void>;
   setLocked: (locked: boolean) => void;
+  toggleAutoSync: () => Promise<void>;
   
   // Auth Actions
   login: () => Promise<void>;
+  loginOffline: (name: string) => Promise<void>;
+  connectGoogleAccount: () => Promise<void>;
   logout: () => Promise<void>;
 
   // Data Refresh Actions
@@ -65,8 +72,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   theme: 'dark', // Slate Dark mode by default for premium feel
   dbInitialized: false,
   appLocked: false,
+  isBootstrapping: true,
   user: null,
-  authLoading: true,
+  authLoading: false,
   accounts: [],
   categories: [],
   transactions: [],
@@ -75,6 +83,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   bills: [],
   syncLoading: false,
   lastSyncTime: null,
+  autoSyncEnabled: false,
 
   initApp: async () => {
     try {
@@ -85,29 +94,89 @@ export const useAppStore = create<AppState>((set, get) => ({
       const user = await AuthService.getCurrentUser();
       const signedIn = !!user;
 
+      // 3. Load auto sync preference
+      let autoSyncEnabled = false;
+      if (Platform.OS === 'web') {
+        autoSyncEnabled = localStorage.getItem('autoSyncEnabled') === 'true';
+      } else {
+        try {
+          const SecureStore = require('expo-secure-store');
+          const val = await SecureStore.getItemAsync('autoSyncEnabled');
+          autoSyncEnabled = val === 'true';
+        } catch {}
+      }
+
+      // Load theme preference
+      let savedTheme: 'light' | 'dark' = 'dark';
+      if (Platform.OS === 'web') {
+        const themeVal = localStorage.getItem('theme');
+        if (themeVal === 'light' || themeVal === 'dark') {
+          savedTheme = themeVal;
+        }
+      } else {
+        try {
+          const SecureStore = require('expo-secure-store');
+          const val = await SecureStore.getItemAsync('theme');
+          if (val === 'light' || val === 'dark') {
+            savedTheme = val;
+          }
+        } catch {}
+      }
+
       set({ 
         user, 
         authLoading: false, 
         dbInitialized: true,
+        autoSyncEnabled,
+        theme: savedTheme,
+        isBootstrapping: false,
         // Set appLocked to false by default for better sandbox UX
         appLocked: false 
       });
 
-      // 3. Load all DB data if logged in
+      // 4. Load all DB data if logged in
       if (signedIn) {
         await get().refreshAllData();
-        // Auto-trigger sync on startup
-        get().triggerSync();
+        // Auto-trigger sync on startup if logged in with Google (not offline) and autoSync is enabled
+        if (user && user.id !== 'offline_user' && autoSyncEnabled) {
+          get().triggerSync();
+        }
       }
     } catch (e) {
       console.error('App initialization failed:', e);
-      set({ authLoading: false });
+      set({ authLoading: false, isBootstrapping: false });
     }
   },
 
   setTab: (tab) => set({ activeTab: tab }),
-  toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
+  toggleTheme: async () => {
+    const nextTheme = get().theme === 'light' ? 'dark' : 'light';
+    set({ theme: nextTheme });
+    if (Platform.OS === 'web') {
+      localStorage.setItem('theme', nextTheme);
+    } else {
+      try {
+        const SecureStore = require('expo-secure-store');
+        await SecureStore.setItemAsync('theme', nextTheme);
+      } catch (e) {
+        console.error('Failed to save theme setting:', e);
+      }
+    }
+  },
   setLocked: (locked) => set({ appLocked: locked }),
+
+  toggleAutoSync: async () => {
+    const nextVal = !get().autoSyncEnabled;
+    set({ autoSyncEnabled: nextVal });
+    if (Platform.OS === 'web') {
+      localStorage.setItem('autoSyncEnabled', String(nextVal));
+    } else {
+      try {
+        const SecureStore = require('expo-secure-store');
+        await SecureStore.setItemAsync('autoSyncEnabled', String(nextVal));
+      } catch {}
+    }
+  },
 
   login: async () => {
     set({ authLoading: true });
@@ -119,6 +188,34 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().triggerSync();
     } catch (e) {
       console.error('Login error:', e);
+      set({ authLoading: false });
+      throw e;
+    }
+  },
+
+  loginOffline: async (name: string) => {
+    set({ authLoading: true });
+    try {
+      const session = await AuthService.signInOffline(name);
+      set({ user: session, authLoading: false, appLocked: false });
+      await get().refreshAllData();
+    } catch (e) {
+      console.error('Offline login error:', e);
+      set({ authLoading: false });
+      throw e;
+    }
+  },
+
+  connectGoogleAccount: async () => {
+    set({ authLoading: true });
+    try {
+      const session = await AuthService.signIn();
+      await SyncService.migrateOfflineData(session.id);
+      set({ user: session, authLoading: false, appLocked: false });
+      await get().refreshAllData();
+      await get().triggerSync();
+    } catch (e) {
+      console.error('Connect Google error:', e);
       set({ authLoading: false });
       throw e;
     }
@@ -187,6 +284,41 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   triggerSync: async () => {
+    const currentUser = get().user;
+    if (!currentUser || currentUser.id === 'offline_user') {
+      if (Platform.OS === 'web') {
+        const confirmLogin = window.confirm(
+          'Google Login Required\n\nCloud synchronization requires a Google account. Would you like to Sign In with Google now and upload all your existing offline data?'
+        );
+        if (confirmLogin) {
+          try {
+            await get().connectGoogleAccount();
+          } catch (err) {
+            // error handled in connectGoogleAccount
+          }
+        }
+      } else {
+        Alert.alert(
+          'Google Login Required',
+          'Cloud synchronization requires a Google account. Would you like to Sign In with Google now and upload all your existing offline data?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Sign In', 
+              onPress: async () => {
+                try {
+                  await get().connectGoogleAccount();
+                } catch (err) {
+                  // error handled in connectGoogleAccount
+                }
+              } 
+            }
+          ]
+        );
+      }
+      return;
+    }
+
     if (get().syncLoading) return;
     set({ syncLoading: true });
     try {

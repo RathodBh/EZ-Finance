@@ -87,16 +87,24 @@ export const SyncService = {
 
       // Loop through all tables, sync one-by-one
       for (const { name, table } of SYNCABLE_TABLES) {
-        // 1. Get dirty local records (unsynced modifications)
-        const dirtyRecords = await db
-          .select()
-          .from(table)
-          .where(eq((table as any).isSynced, false));
+        // 1. Get dirty local records (unsynced modifications) and all records
+        let dirtyRecords: any[] = [];
+        let allLocalRecords: any[] = [];
 
-        // 2. Load existing data payload from local database to include with the upload
-        const allLocalRecords = await db
-          .select()
-          .from(table);
+        if (Platform.OS === 'web') {
+          const stored = localStorage.getItem(`ff_${name}`);
+          allLocalRecords = stored ? JSON.parse(stored) : [];
+          dirtyRecords = allLocalRecords.filter((r: any) => !r.isSynced);
+        } else {
+          dirtyRecords = await db
+            .select()
+            .from(table)
+            .where(eq((table as any).isSynced, false));
+
+          allLocalRecords = await db
+            .select()
+            .from(table);
+        }
 
         // 3. Upload device's state to Google Drive AppData
         const fileName = `${name}_${deviceId}.json`;
@@ -110,23 +118,24 @@ export const SyncService = {
         recordsUploaded += dirtyRecords.length;
 
         // 4. Download other devices' state files
-        let allRemoteFiles: string[] = [];
+        let allRemoteFiles: { id: string; name: string }[] = [];
         if (mockMode) {
-          allRemoteFiles = await this.mockListFiles(name);
+          const files = await this.mockListFiles(name);
+          allRemoteFiles = files.map(f => ({ id: f, name: f }));
         } else {
           allRemoteFiles = await this.driveListFiles(accessToken, name);
         }
 
         const remoteRecords: any[] = [];
-        for (const fileIdOrName of allRemoteFiles) {
+        for (const file of allRemoteFiles) {
           // Skip downloading our own device file
-          if (fileIdOrName.includes(deviceId)) continue;
+          if (file.name.includes(deviceId)) continue;
 
           let fileContentStr = '';
           if (mockMode) {
-            fileContentStr = await this.mockDownload(fileIdOrName);
+            fileContentStr = await this.mockDownload(file.id);
           } else {
-            fileContentStr = await this.driveDownload(accessToken, fileIdOrName);
+            fileContentStr = await this.driveDownload(accessToken, file.id);
           }
 
           if (fileContentStr) {
@@ -136,7 +145,7 @@ export const SyncService = {
                 remoteRecords.push(...records);
               }
             } catch (parseErr) {
-              console.warn(`Failed to parse remote file: ${fileIdOrName}`, parseErr);
+              console.warn(`Failed to parse remote file: ${file.name}`, parseErr);
             }
           }
         }
@@ -144,18 +153,27 @@ export const SyncService = {
         // 5. Merge remote records using Latest-Version-Wins
         let tableDownloadedCount = 0;
         if (remoteRecords.length > 0) {
-          tableDownloadedCount = await this.mergeRecords(table, remoteRecords);
+          tableDownloadedCount = await this.mergeRecords(name, table, remoteRecords);
           recordsDownloaded += tableDownloadedCount;
         }
 
         // 6. Mark all local records as synced since we pushed our full state
-        await db
-          .update(table)
-          .set({
+        if (Platform.OS === 'web') {
+          const updatedLocal = allLocalRecords.map((r: any) => ({
+            ...r,
             isSynced: true,
             syncStatus: 'SYNCED',
-          } as any)
-          .where(eq((table as any).isSynced, false));
+          }));
+          localStorage.setItem(`ff_${name}`, JSON.stringify(updatedLocal));
+        } else {
+          await db
+            .update(table)
+            .set({
+              isSynced: true,
+              syncStatus: 'SYNCED',
+            } as any)
+            .where(eq((table as any).isSynced, false));
+        }
       }
 
       success = true;
@@ -168,23 +186,46 @@ export const SyncService = {
       // 7. Log sync activity to local db
       try {
         const now = Date.now();
-        await db.insert(schema.syncLogs).values({
-          id: 'log_' + Math.random().toString(36).substring(2, 11) + now.toString(36),
-          createdAt: now,
-          updatedAt: now,
-          version: 1,
-          isSynced: false,
-          syncStatus: 'PENDING',
-          deviceId,
-          googleAccountId,
-          syncType,
-          startTime,
-          endTime: now,
-          status: success ? 'SUCCESS' : 'FAILED',
-          recordsUploaded,
-          recordsDownloaded,
-          errorMessage: errorMessage || null,
-        });
+        if (Platform.OS === 'web') {
+          const stored = localStorage.getItem('ff_sync_logs');
+          const logs = stored ? JSON.parse(stored) : [];
+          logs.push({
+            id: 'log_' + Math.random().toString(36).substring(2, 11) + now.toString(36),
+            createdAt: now,
+            updatedAt: now,
+            version: 1,
+            isSynced: true,
+            syncStatus: 'SYNCED',
+            deviceId,
+            googleAccountId,
+            syncType,
+            startTime,
+            endTime: now,
+            status: success ? 'SUCCESS' : 'FAILED',
+            recordsUploaded,
+            recordsDownloaded,
+            errorMessage: errorMessage || null,
+          });
+          localStorage.setItem('ff_sync_logs', JSON.stringify(logs));
+        } else {
+          await db.insert(schema.syncLogs).values({
+            id: 'log_' + Math.random().toString(36).substring(2, 11) + now.toString(36),
+            createdAt: now,
+            updatedAt: now,
+            version: 1,
+            isSynced: false,
+            syncStatus: 'PENDING',
+            deviceId,
+            googleAccountId,
+            syncType,
+            startTime,
+            endTime: now,
+            status: success ? 'SUCCESS' : 'FAILED',
+            recordsUploaded,
+            recordsDownloaded,
+            errorMessage: errorMessage || null,
+          });
+        }
       } catch (logErr) {
         console.error('Failed to save sync log:', logErr);
       }
@@ -194,10 +235,49 @@ export const SyncService = {
   },
 
   /**
+   * Migrate all local offline database records to a newly connected Google account.
+   */
+  async migrateOfflineData(newGoogleAccountId: string): Promise<void> {
+    console.log(`Migrating offline data to Google Account ID: ${newGoogleAccountId}`);
+    if (Platform.OS === 'web') {
+      for (const { name } of SYNCABLE_TABLES) {
+        try {
+          const stored = localStorage.getItem(`ff_${name}`);
+          const list = stored ? JSON.parse(stored) : [];
+          const updated = list.map((item: any) => ({
+            ...item,
+            googleAccountId: newGoogleAccountId,
+            isSynced: false,
+            syncStatus: 'PENDING',
+          }));
+          localStorage.setItem(`ff_${name}`, JSON.stringify(updated));
+        } catch (err) {
+          console.error(`Web migration failed for table ${name}:`, err);
+        }
+      }
+      return;
+    }
+
+    for (const { name, table } of SYNCABLE_TABLES) {
+      try {
+        await db
+          .update(table)
+          .set({
+            googleAccountId: newGoogleAccountId,
+            isSynced: false,
+            syncStatus: 'PENDING',
+          } as any);
+      } catch (err) {
+        console.error(`Migration failed for table ${name}:`, err);
+      }
+    }
+  },
+
+  /**
    * Compare and merge remote records into SQLite.
    * Latest-Version-Wins algorithm.
    */
-  async mergeRecords(table: any, remoteRecords: any[]): Promise<number> {
+  async mergeRecords(tableName: string, table: any, remoteRecords: any[]): Promise<number> {
     let updateCount = 0;
     
     // Group records by ID to process the latest state of each entity
@@ -207,6 +287,40 @@ export const SyncService = {
       if (!existing || record.version > existing.version || (record.version === existing.version && record.updatedAt > existing.updatedAt)) {
         latestRemoteMap.set(record.id, record);
       }
+    }
+
+    if (Platform.OS === 'web') {
+      const stored = localStorage.getItem(`ff_${tableName}`);
+      const localRecords = stored ? JSON.parse(stored) : [];
+      const localMap = new Map<string, any>(localRecords.map((r: any) => [r.id, r]));
+
+      for (const [id, remoteRecord] of latestRemoteMap.entries()) {
+        const localRecord = localMap.get(id);
+        if (!localRecord) {
+          localRecords.push({
+            ...remoteRecord,
+            isSynced: true,
+            syncStatus: 'SYNCED',
+          });
+          updateCount++;
+        } else {
+          const remoteIsNewer = 
+            remoteRecord.version > localRecord.version || 
+            (remoteRecord.version === localRecord.version && remoteRecord.updatedAt > localRecord.updatedAt);
+
+          if (remoteIsNewer) {
+            const idx = localRecords.findIndex((r: any) => r.id === id);
+            localRecords[idx] = {
+              ...remoteRecord,
+              isSynced: true,
+              syncStatus: 'SYNCED',
+            };
+            updateCount++;
+          }
+        }
+      }
+      localStorage.setItem(`ff_${tableName}`, JSON.stringify(localRecords));
+      return updateCount;
     }
 
     for (const [id, remoteRecord] of latestRemoteMap.entries()) {
@@ -315,9 +429,9 @@ export const SyncService = {
     return null;
   },
 
-  async driveListFiles(accessToken: string, prefix: string): Promise<string[]> {
+  async driveListFiles(accessToken: string, prefix: string): Promise<{ id: string; name: string }[]> {
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
-      `name name_has '${prefix}_' and 'appDataFolder' in parents and trashed = false`
+      `name contains '${prefix}_' and 'appDataFolder' in parents and trashed = false`
     )}&spaces=appDataFolder&fields=files(id,name)`;
 
     const response = await fetch(url, {
@@ -329,7 +443,7 @@ export const SyncService = {
     }
 
     const json = await response.json();
-    return (json.files || []).map((f: any) => f.id);
+    return (json.files || []).map((f: any) => ({ id: f.id, name: f.name }));
   },
 
   async driveDownload(accessToken: string, fileId: string): Promise<string> {

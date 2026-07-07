@@ -7,7 +7,7 @@ import { useAppStore } from '../store/appStore';
 import { paperDarkTheme, paperLightTheme, ThemeColors } from '../styles/theme';
 
 export default function RootLayout() {
-  const { initApp, user, authLoading, theme, dbInitialized } = useAppStore();
+  const { initApp, user, authLoading, theme, dbInitialized, isBootstrapping } = useAppStore();
   const segments = useSegments();
   const router = useRouter();
 
@@ -20,12 +20,12 @@ export default function RootLayout() {
   useEffect(() => {
     if (authLoading || !dbInitialized) return;
 
-    const inTabsGroup = segments[0] === '(tabs)' || (segments as any).length === 0;
+    const isLoggingIn = segments[0] === 'login';
 
-    if (!user && inTabsGroup) {
+    if (!user && !isLoggingIn) {
       // Not logged in -> redirect to onboarding login path
       router.replace('/login');
-    } else if (user && segments[0] === 'login') {
+    } else if (user && isLoggingIn) {
       // Logged in -> redirect to dashboard
       router.replace('/');
     }
@@ -34,7 +34,7 @@ export default function RootLayout() {
   const activeColors = ThemeColors[theme];
   const paperTheme = theme === 'dark' ? paperDarkTheme : paperLightTheme;
 
-  if (authLoading || !dbInitialized) {
+  if (isBootstrapping || !dbInitialized) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: ThemeColors.dark.background }]}>
         <ActivityIndicator size="large" color={ThemeColors.dark.primary} />
