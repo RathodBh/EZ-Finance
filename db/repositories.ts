@@ -79,7 +79,15 @@ export const UserRepository = {
     });
   },
 
-  async upsertProfile(data: { id: string; googleId: string; email: string; displayName?: string; photoUrl?: string }) {
+  async upsertProfile(data: { 
+    id: string; 
+    googleId: string; 
+    email: string; 
+    displayName?: string; 
+    photoUrl?: string;
+    currency?: string;
+    notificationsEnabled?: boolean;
+  }) {
     if (Platform.OS === 'web') {
       const meta = await prepareSyncMetadata();
       const usersList = getWebList('users');
@@ -87,9 +95,11 @@ export const UserRepository = {
       
       const record = { ...data, ...meta };
       if (idx >= 0) {
-        record.createdAt = usersList[idx].createdAt; // Preserve creation
-        record.version = (usersList[idx].version || 1) + 1;
-        usersList[idx] = record;
+        // Merge with existing record
+        const merged = { ...usersList[idx], ...data, ...meta };
+        merged.createdAt = usersList[idx].createdAt; // Preserve creation
+        merged.version = (usersList[idx].version || 1) + 1;
+        usersList[idx] = merged;
       } else {
         usersList.push(record);
       }

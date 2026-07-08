@@ -5,6 +5,8 @@ import { useRouter } from 'expo-router';
 import { useAppStore } from '../store/appStore';
 import { ThemeColors, LayoutStyles } from '../styles/theme';
 
+import { formatCurrency as formatCurrencyUtil } from '../services/utils';
+
 const { width } = Dimensions.get('window');
 
 export default function DashboardScreen() {
@@ -17,7 +19,8 @@ export default function DashboardScreen() {
     theme, 
     triggerSync, 
     syncLoading,
-    user
+    user,
+    currency
   } = useAppStore();
 
   const activeColors = ThemeColors[theme];
@@ -45,10 +48,7 @@ export default function DashboardScreen() {
 
   // 2. Format Currency Helper
   const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(val);
+    return formatCurrencyUtil(val, currency);
   };
 
   return (

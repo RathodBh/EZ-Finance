@@ -4,18 +4,16 @@ import { Text, Card, ProgressBar, IconButton } from 'react-native-paper';
 import { useAppStore } from '../store/appStore';
 import { ThemeColors } from '../styles/theme';
 
+import { formatCurrency as formatCurrencyUtil } from '../services/utils';
 import { useRouter } from 'expo-router';
 
 export default function BudgetsScreen() {
   const router = useRouter();
-  const { budgets, goals, transactions, categories, theme } = useAppStore();
+  const { budgets, goals, transactions, categories, theme, currency } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(val);
+    return formatCurrencyUtil(val, currency);
   };
 
   return (

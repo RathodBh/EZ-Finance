@@ -388,7 +388,9 @@ export async function initDb() {
             \`google_id\` text NOT NULL,
             \`email\` text NOT NULL,
             \`display_name\` text,
-            \`photo_url\` text
+            \`photo_url\` text,
+            \`currency\` text DEFAULT 'USD',
+            \`notifications_enabled\` integer DEFAULT 0
           );
         `);
 
@@ -428,6 +430,16 @@ export async function initDb() {
         // Set default flag to Cash Wallet if no accounts are default yet
         expoDb.execSync(`UPDATE \`accounts\` SET \`is_default\` = 1 WHERE \`id\` = 'acc_cash';`);
         console.log('Database migration successful: Added is_default column.');
+      } catch (err) {
+        // Column already exists, safe to ignore
+      }
+      try {
+        expoDb.execSync(`ALTER TABLE \`users\` ADD COLUMN \`currency\` text DEFAULT 'USD';`);
+      } catch (err) {
+        // Column already exists, safe to ignore
+      }
+      try {
+        expoDb.execSync(`ALTER TABLE \`users\` ADD COLUMN \`notifications_enabled\` integer DEFAULT 0;`);
       } catch (err) {
         // Column already exists, safe to ignore
       }

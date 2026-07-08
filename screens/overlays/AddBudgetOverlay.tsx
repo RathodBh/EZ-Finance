@@ -4,12 +4,13 @@ import { Text, Button, TextInput, IconButton } from 'react-native-paper';
 import { useAppStore } from '../../store/appStore';
 import { BudgetRepository } from '../../db/repositories';
 import { ThemeColors } from '../../styles/theme';
+import { getCurrencySymbol } from '../../services/utils';
 
 import { useRouter } from 'expo-router';
 
 export default function AddBudgetOverlay() {
   const router = useRouter();
-  const { categories, theme, refreshBudgets } = useAppStore();
+  const { categories, theme, refreshBudgets, currency } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   // Forms states
@@ -70,7 +71,7 @@ export default function AddBudgetOverlay() {
           activeOutlineColor={activeColors.primary}
           textColor={activeColors.text}
           style={[styles.input, { backgroundColor: activeColors.surface }]}
-          left={<TextInput.Affix text="$ " />}
+          left={<TextInput.Affix text={`${getCurrencySymbol(currency)} `} />}
         />
 
         {/* Category selector */}

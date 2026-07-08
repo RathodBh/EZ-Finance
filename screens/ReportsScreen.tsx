@@ -6,12 +6,14 @@ import { useAppStore } from '../store/appStore';
 import { ThemeColors } from '../styles/theme';
 import DatePickerModal from '../components/DatePickerModal';
 
+import { formatCurrency as formatCurrencyUtil } from '../services/utils';
+
 const { width } = Dimensions.get('window');
 
 type TimeframeType = 'DAY' | 'WEEK' | 'MONTH' | '3MONTH' | '6MONTH' | 'CUSTOM';
 
 export default function ReportsScreen() {
-  const { transactions, categories, theme } = useAppStore();
+  const { transactions, categories, theme, currency } = useAppStore();
   const [reportType, setReportType] = useState<'expenses' | 'cashflow'>('expenses');
   const activeColors = ThemeColors[theme];
 
@@ -366,11 +368,7 @@ export default function ReportsScreen() {
   };
 
   const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      maximumFractionDigits: 0,
-    }).format(val);
+    return formatCurrencyUtil(val, currency);
   };
 
   return (

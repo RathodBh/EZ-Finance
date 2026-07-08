@@ -3,14 +3,18 @@ import { View, StyleSheet, ScrollView, Alert } from "react-native";
 import {
   Text,
   List,
-  Switch,
   Avatar,
   Button,
   Card,
   Divider,
+  TextInput,
 } from "react-native-paper";
 import { useAppStore } from "../store/appStore";
 import { ThemeColors } from "../styles/theme";
+import { NotificationService } from "../services/notificationService";
+import { CURRENCIES } from "../services/utils";
+import SlideUpModal from "../components/SlideUpModal";
+import PremiumSwitch from "../components/PremiumSwitch";
 import Papa from "papaparse";
 import { Platform } from "react-native";
 
@@ -56,9 +60,24 @@ export default function MoreScreen() {
     autoSyncEnabled,
     toggleAutoSync,
     connectGoogleAccount,
+    currency,
+    setCurrency,
+    notificationsEnabled,
+    toggleNotifications,
   } = useAppStore();
 
   const activeColors = ThemeColors[theme];
+
+  const [showCurrencyModal, setShowCurrencyModal] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState("");
+
+  const filteredCurrencies = React.useMemo(() => {
+    return CURRENCIES.filter(
+      (c) =>
+        c.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [searchQuery]);
 
   const handleExportCSV = async () => {
     try {
@@ -227,9 +246,17 @@ export default function MoreScreen() {
             {user.id === "offline_user" ? (
               <Avatar.Text
                 size={56}
-                label={(user.name || 'O').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                label={(user.name || "O")
+                  .split(" ")
+                  .map((n) => n[0])
+                  .join("")
+                  .substring(0, 2)
+                  .toUpperCase()}
                 style={{ backgroundColor: activeColors.primary }}
-                labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
+                labelStyle={{
+                  color: activeColors.background,
+                  fontWeight: "bold",
+                }}
               />
             ) : (
               <Avatar.Image
@@ -242,20 +269,40 @@ export default function MoreScreen() {
               />
             )}
             <View style={styles.profileMeta}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <Text style={[styles.profileName, { color: activeColors.text }]}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  flexWrap: "wrap",
+                }}
+              >
+                <Text
+                  style={[styles.profileName, { color: activeColors.text }]}
+                >
                   {user.name}
                 </Text>
                 {user.id === "offline_user" && (
-                  <View style={{
-                    backgroundColor: 'rgba(226, 184, 92, 0.15)',
-                    paddingHorizontal: 8,
-                    paddingVertical: 2,
-                    borderRadius: 6,
-                    borderWidth: 1,
-                    borderColor: activeColors.primary,
-                  }}>
-                    <Text style={{ color: activeColors.primary, fontSize: 9, fontWeight: 'bold', letterSpacing: 0.5 }}>LOCAL VAULT</Text>
+                  <View
+                    style={{
+                      backgroundColor: "rgba(226, 184, 92, 0.15)",
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      borderRadius: 6,
+                      borderWidth: 1,
+                      borderColor: activeColors.primary,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: activeColors.primary,
+                        fontSize: 9,
+                        fontWeight: "bold",
+                        letterSpacing: 0.5,
+                      }}
+                    >
+                      LOCAL VAULT
+                    </Text>
                   </View>
                 )}
               </View>
@@ -265,7 +312,9 @@ export default function MoreScreen() {
                   { color: activeColors.textSecondary },
                 ]}
               >
-                {user.id === "offline_user" ? "Offline Mode • Data saved on device" : user.email}
+                {user.id === "offline_user"
+                  ? "Offline Mode • Data saved on device"
+                  : user.email}
               </Text>
             </View>
           </Card.Content>
@@ -276,7 +325,10 @@ export default function MoreScreen() {
                 icon="google"
                 onPress={handleConnectGoogle}
                 style={{ flex: 1, backgroundColor: activeColors.primary }}
-                labelStyle={{ color: activeColors.background, fontWeight: "bold" }}
+                labelStyle={{
+                  color: activeColors.background,
+                  fontWeight: "bold",
+                }}
               >
                 Connect Google Account
               </Button>
@@ -305,15 +357,22 @@ export default function MoreScreen() {
             />
           )}
           right={() => (
-            <Button
-              mode="outlined"
-              loading={syncLoading}
-              onPress={() => triggerSync()}
-              style={{ borderColor: activeColors.primary }}
-              labelStyle={{ color: activeColors.primary }}
-            >
-              Sync Now
-            </Button>
+            <View style={{ justifyContent: "center", paddingRight: 4 }}>
+              <Button
+                mode="outlined"
+                compact
+                loading={syncLoading}
+                onPress={() => triggerSync()}
+                style={{ borderColor: activeColors.primary }}
+                labelStyle={{
+                  color: activeColors.primary,
+                  fontSize: 13,
+                  fontWeight: "bold",
+                }}
+              >
+                {!user || user.id === "offline_user" ? "Connect" : "Sync"}
+              </Button>
+            </View>
           )}
           style={[
             styles.listItem,
@@ -353,11 +412,12 @@ export default function MoreScreen() {
             )}
             right={() => (
               <View style={{ justifyContent: "center" }}>
-                <Switch
+                <PremiumSwitch
                   value={autoSyncEnabled}
                   disabled={!user || user.id === "offline_user"}
                   onValueChange={toggleAutoSync}
-                  color={activeColors.primary}
+                  activeColor={activeColors.primary}
+                  inactiveColor={theme === 'dark' ? '#3e3e3e' : '#e0e0e0'}
                 />
               </View>
             )}
@@ -401,10 +461,11 @@ export default function MoreScreen() {
             />
           )}
           right={() => (
-            <Switch
+            <PremiumSwitch
               value={theme === "dark"}
               onValueChange={toggleTheme}
-              color={activeColors.primary}
+              activeColor={activeColors.primary}
+              inactiveColor={theme === 'dark' ? '#3e3e3e' : '#e0e0e0'}
             />
           )}
           style={[
@@ -418,6 +479,105 @@ export default function MoreScreen() {
           descriptionStyle={{ color: activeColors.textSecondary }}
         />
 
+        <List.Item
+          title="Primary Currency"
+          description="Select global formatting currency"
+          left={(props) => (
+            <List.Icon
+              {...props}
+              icon="cash-multiple"
+              color={activeColors.text}
+            />
+          )}
+          right={(props) => (
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Text
+                style={{
+                  color: activeColors.primary,
+                  marginRight: 4,
+                  fontWeight: "bold",
+                }}
+              >
+                {currency}
+              </Text>
+              <List.Icon
+                {...props}
+                icon="chevron-down"
+                color={activeColors.textSecondary}
+              />
+            </View>
+          )}
+          onPress={() => setShowCurrencyModal(true)}
+          style={[
+            styles.listItem,
+            {
+              backgroundColor: activeColors.surface,
+              borderColor: activeColors.border,
+            },
+          ]}
+          titleStyle={{ color: activeColors.text }}
+          descriptionStyle={{ color: activeColors.textSecondary }}
+        />
+
+        <List.Item
+          title="Transaction Reminders"
+          description="Daily notifications to log transactions"
+          left={(props) => (
+            <List.Icon
+              {...props}
+              icon="bell-outline"
+              color={activeColors.text}
+            />
+          )}
+          right={() => (
+            <PremiumSwitch
+              value={notificationsEnabled}
+              onValueChange={toggleNotifications}
+              activeColor={activeColors.primary}
+              inactiveColor={theme === 'dark' ? '#3e3e3e' : '#e0e0e0'}
+            />
+          )}
+          style={[
+            styles.listItem,
+            {
+              backgroundColor: activeColors.surface,
+              borderColor: activeColors.border,
+            },
+          ]}
+          titleStyle={{ color: activeColors.text }}
+          descriptionStyle={{ color: activeColors.textSecondary }}
+        />
+
+        <List.Item
+          title="Send Test Notification"
+          description="Trigger an immediate test alert (2s delay)"
+          left={(props) => (
+            <List.Icon
+              {...props}
+              icon="alert-circle-outline"
+              color={activeColors.text}
+            />
+          )}
+          onPress={async () => {
+            await NotificationService.sendTestNotification();
+          }}
+          style={[
+            styles.listItem,
+            {
+              backgroundColor: activeColors.surface,
+              borderColor: activeColors.border,
+            },
+          ]}
+          titleStyle={{ color: activeColors.text }}
+          descriptionStyle={{ color: activeColors.textSecondary }}
+        />
+      </List.Section>
+
+      {/* Reorganized Section 2: Data Management */}
+      <List.Section
+        title="Data & Structure"
+        titleStyle={{ color: activeColors.primary, fontWeight: "bold" }}
+      >
         <List.Item
           title="Manage Categories"
           description="Edit and organize category tree"
@@ -537,6 +697,67 @@ export default function MoreScreen() {
       >
         Sign Out Vault
       </Button>
+
+      {/* Currency Picker Modal */}
+      <SlideUpModal
+        visible={showCurrencyModal}
+        onClose={() => {
+          setShowCurrencyModal(false);
+          setSearchQuery("");
+        }}
+        backgroundColor={activeColors.surface}
+        indicatorColor={activeColors.border}
+      >
+        <View style={{ paddingHorizontal: 20, paddingTop: 10, paddingBottom: 20 }}>
+          <Text style={{ fontSize: 20, fontWeight: "bold", color: activeColors.text, marginBottom: 12 }}>
+            Select Primary Currency
+          </Text>
+        <TextInput
+          mode="outlined"
+          placeholder="Search currency..."
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          style={{ marginBottom: 12, backgroundColor: activeColors.surface }}
+          left={<TextInput.Icon icon="magnify" />}
+          outlineColor={activeColors.border}
+          activeOutlineColor={activeColors.primary}
+          textColor={activeColors.text}
+          theme={{ colors: { background: activeColors.surface } }}
+        />
+        <ScrollView style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled">
+          {filteredCurrencies.map((c) => (
+            <List.Item
+              key={c.code}
+              title={`${c.name} (${c.code})`}
+              description={`Format: ${c.symbol} 1,234.56`}
+              left={(props) => (
+                <View style={{ width: 40, justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 20, color: activeColors.text, fontWeight: 'bold' }}>
+                    {c.symbol}
+                  </Text>
+                </View>
+              )}
+              right={(props) =>
+                currency === c.code ? (
+                  <List.Icon {...props} icon="check" color={activeColors.primary} />
+                ) : null
+              }
+              onPress={async () => {
+                await setCurrency(c.code);
+                setShowCurrencyModal(false);
+                setSearchQuery("");
+              }}
+              style={{
+                borderBottomWidth: 1,
+                borderBottomColor: activeColors.border,
+              }}
+              titleStyle={{ color: activeColors.text }}
+              descriptionStyle={{ color: activeColors.textSecondary }}
+            />
+          ))}
+        </ScrollView>
+        </View>
+      </SlideUpModal>
     </ScrollView>
   );
 }

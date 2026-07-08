@@ -20,6 +20,8 @@ export const users = sqliteTable('users', {
   email: text('email').notNull(),
   displayName: text('display_name'),
   photoUrl: text('photo_url'),
+  currency: text('currency').default('USD'),
+  notificationsEnabled: integer('notifications_enabled', { mode: 'boolean' }).default(false),
 });
 
 // Accounts Table

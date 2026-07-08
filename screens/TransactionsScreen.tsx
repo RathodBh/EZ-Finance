@@ -6,8 +6,10 @@ import { TransactionRepository } from '../db/repositories';
 import { ThemeColors } from '../styles/theme';
 import DatePickerModal from '../components/DatePickerModal';
 
+import { formatCurrency as formatCurrencyUtil } from '../services/utils';
+
 export default function TransactionsScreen() {
-  const { transactions, accounts, categories, theme, refreshTransactions, refreshAccounts } = useAppStore();
+  const { transactions, accounts, categories, theme, refreshTransactions, refreshAccounts, currency } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE' | 'TRANSFER'>('ALL');
   
@@ -82,10 +84,7 @@ export default function TransactionsScreen() {
   };
 
   const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(val);
+    return formatCurrencyUtil(val, currency);
   };
 
   return (

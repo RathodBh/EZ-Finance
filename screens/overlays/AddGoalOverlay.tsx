@@ -4,12 +4,13 @@ import { Text, Button, TextInput, IconButton } from 'react-native-paper';
 import { useAppStore } from '../../store/appStore';
 import { GoalRepository } from '../../db/repositories';
 import { ThemeColors } from '../../styles/theme';
+import { getCurrencySymbol } from '../../services/utils';
 
 import { useRouter } from 'expo-router';
 
 export default function AddGoalOverlay() {
   const router = useRouter();
-  const { theme, refreshGoals } = useAppStore();
+  const { theme, refreshGoals, currency } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   // Forms states
@@ -81,7 +82,7 @@ export default function AddGoalOverlay() {
           activeOutlineColor={activeColors.primary}
           textColor={activeColors.text}
           style={[styles.input, { backgroundColor: activeColors.surface }]}
-          left={<TextInput.Affix text="$ " />}
+          left={<TextInput.Affix text={`${getCurrencySymbol(currency)} `} />}
         />
 
         <TextInput
@@ -93,7 +94,7 @@ export default function AddGoalOverlay() {
           activeOutlineColor={activeColors.primary}
           textColor={activeColors.text}
           style={[styles.input, { backgroundColor: activeColors.surface }]}
-          left={<TextInput.Affix text="$ " />}
+          left={<TextInput.Affix text={`${getCurrencySymbol(currency)} `} />}
         />
 
         {/* Icon selector */}

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert, Modal, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
 import { Text, Button, TextInput, IconButton, List, Surface, SegmentedButtons } from 'react-native-paper';
 import { useAppStore } from '../../store/appStore';
 import { CategoryRepository } from '../../db/repositories';
 import { ThemeColors } from '../../styles/theme';
 import { useRouter } from 'expo-router';
+import SlideUpModal from '../../components/SlideUpModal';
 
 const AVAILABLE_ICONS = [
   // Finance & Money
@@ -207,110 +208,112 @@ export default function ManageCategoriesOverlay() {
       {/* ─────────────────────────────────────────────────────────────────────────────
           ADD / EDIT CATEGORY MODAL
           ───────────────────────────────────────────────────────────────────────────── */}
-      <Modal visible={showModal} transparent animationType="slide" onRequestClose={() => setShowModal(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowModal(false)}>
-          <TouchableOpacity activeOpacity={1} style={{ width: '100%' }}>
-            <Surface style={[styles.modalContent, { backgroundColor: activeColors.surface }]} elevation={5}>
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: activeColors.text }]}>
-                  {editingCategory ? 'Edit Category' : 'Create Category'}
-                </Text>
-                <IconButton icon="close" size={20} iconColor={activeColors.text} onPress={() => setShowModal(false)} />
-              </View>
-              
-              <TextInput
-                label="Category Name"
-                value={name}
-                onChangeText={setName}
-                mode="outlined"
-                activeOutlineColor={activeColors.primary}
-                textColor={activeColors.text}
-                style={[styles.input, { backgroundColor: activeColors.surface }]}
-              />
+      {/* ADD / EDIT CATEGORY SlideUpModal */}
+      <SlideUpModal
+        visible={showModal}
+        onClose={() => setShowModal(false)}
+        backgroundColor={activeColors.surface}
+        indicatorColor={activeColors.border}
+      >
+        <View style={{ padding: 20, paddingBottom: 40 }}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: activeColors.text }]}>
+              {editingCategory ? 'Edit Category' : 'Create Category'}
+            </Text>
+            <IconButton icon="close" size={20} iconColor={activeColors.text} onPress={() => setShowModal(false)} />
+          </View>
+          
+          <TextInput
+            label="Category Name"
+            value={name}
+            onChangeText={setName}
+            mode="outlined"
+            activeOutlineColor={activeColors.primary}
+            textColor={activeColors.text}
+            style={[styles.input, { backgroundColor: activeColors.surface }]}
+          />
 
-              {/* Type Select */}
-              <Text style={[styles.fieldLabel, { color: activeColors.textSecondary }]}>Category Type</Text>
-              <SegmentedButtons
-                value={type}
-                onValueChange={(val) => {
-                  const selectedVal = val as 'EXPENSE' | 'INCOME';
-                  setType(selectedVal);
-                  // Update default colors and icons if not customized
-                  if (!editingCategory) {
-                    setIcon(selectedVal === 'EXPENSE' ? 'tag-outline' : 'cash-multiple');
-                    setColor(selectedVal === 'EXPENSE' ? '#EF4444' : '#10B981');
-                  }
-                }}
-                buttons={[
-                  { value: 'EXPENSE', label: 'Expense' },
-                  { value: 'INCOME', label: 'Income' },
+          {/* Type Select */}
+          <Text style={[styles.fieldLabel, { color: activeColors.textSecondary }]}>Category Type</Text>
+          <SegmentedButtons
+            value={type}
+            onValueChange={(val) => {
+              const selectedVal = val as 'EXPENSE' | 'INCOME';
+              setType(selectedVal);
+              // Update default colors and icons if not customized
+              if (!editingCategory) {
+                setIcon(selectedVal === 'EXPENSE' ? 'tag-outline' : 'cash-multiple');
+                setColor(selectedVal === 'EXPENSE' ? '#EF4444' : '#10B981');
+              }
+            }}
+            buttons={[
+              { value: 'EXPENSE', label: 'Expense' },
+              { value: 'INCOME', label: 'Income' },
+            ]}
+            style={{ marginBottom: 16 }}
+            theme={{ colors: { secondaryContainer: activeColors.primary } }}
+          />
+
+          {/* Color Select */}
+          <Text style={[styles.fieldLabel, { color: activeColors.textSecondary }]}>Category Color</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.colorRow}>
+            {CURATED_COLORS.map(c => (
+              <TouchableOpacity
+                key={c}
+                style={[
+                  styles.colorSwatch,
+                  { backgroundColor: c, borderColor: activeColors.text },
+                  color === c && styles.selectedColorSwatch
                 ]}
-                style={{ marginBottom: 16 }}
-                theme={{ colors: { secondaryContainer: activeColors.primary } }}
+                onPress={() => setColor(c)}
               />
+            ))}
+          </ScrollView>
 
-              {/* Color Select */}
-              <Text style={[styles.fieldLabel, { color: activeColors.textSecondary }]}>Category Color</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.colorRow}>
-                {CURATED_COLORS.map(c => (
-                  <TouchableOpacity
-                    key={c}
-                    style={[
-                      styles.colorSwatch,
-                      { backgroundColor: c, borderColor: activeColors.text },
-                      color === c && styles.selectedColorSwatch
-                    ]}
-                    onPress={() => setColor(c)}
-                  />
-                ))}
-              </ScrollView>
-
-              {/* Icon Select */}
-              <Text style={[styles.fieldLabel, { color: activeColors.textSecondary }]}>Category Icon</Text>
-              <ScrollView style={styles.iconGridScroll}>
-                <View style={styles.iconGrid}>
-                  {AVAILABLE_ICONS.map(i => (
-                    <TouchableOpacity
-                      key={i}
-                      style={[
-                        styles.iconCell,
-                        { borderColor: activeColors.border },
-                        icon === i && { backgroundColor: `${color}20`, borderColor: color, borderWidth: 2 }
-                      ]}
-                      onPress={() => setIcon(i)}
-                    >
-                      <IconButton icon={i} iconColor={icon === i ? color : activeColors.textSecondary} size={22} style={{ margin: 0 }} />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-
-              {/* Actions */}
-              <View style={styles.modalActions}>
-                <Button
-                  mode="contained"
-                  onPress={handleSave}
-                  style={[styles.modalSaveBtn, { backgroundColor: activeColors.primary }]}
-                  labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
+          {/* Icon Select */}
+          <Text style={[styles.fieldLabel, { color: activeColors.textSecondary }]}>Category Icon</Text>
+          <ScrollView style={styles.iconGridScroll}>
+            <View style={styles.iconGrid}>
+              {AVAILABLE_ICONS.map(i => (
+                <TouchableOpacity
+                  key={i}
+                  style={[
+                    styles.iconCell,
+                    { borderColor: activeColors.border },
+                    icon === i && { backgroundColor: `${color}20`, borderColor: color, borderWidth: 2 }
+                  ]}
+                  onPress={() => setIcon(i)}
                 >
-                  {editingCategory ? 'Save Changes' : 'Create Category'}
-                </Button>
-                
-                {editingCategory && (
-                  <Button
-                    mode="outlined"
-                    onPress={() => handleDelete(editingCategory.id)}
-                    style={[styles.modalDeleteBtn, { borderColor: activeColors.error }]}
-                    labelStyle={{ color: activeColors.error, fontWeight: 'bold' }}
-                  >
-                    Delete Category
-                  </Button>
-                )}
-              </View>
-            </Surface>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+                  <IconButton icon={i} iconColor={icon === i ? color : activeColors.textSecondary} size={22} style={{ margin: 0 }} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          {/* Actions */}
+          <View style={styles.modalActions}>
+            <Button
+              mode="contained"
+              onPress={handleSave}
+              style={[styles.modalSaveBtn, { backgroundColor: activeColors.primary }]}
+              labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
+            >
+              {editingCategory ? 'Save Changes' : 'Create Category'}
+            </Button>
+            
+            {editingCategory && (
+              <Button
+                mode="outlined"
+                onPress={() => handleDelete(editingCategory.id)}
+                style={[styles.modalDeleteBtn, { borderColor: activeColors.error }]}
+                labelStyle={{ color: activeColors.error, fontWeight: 'bold' }}
+              >
+                Delete Category
+              </Button>
+            )}
+          </View>
+        </View>
+      </SlideUpModal>
     </View>
   );
 }
@@ -422,7 +425,7 @@ const styles = StyleSheet.create({
     borderWidth: 3,
   },
   iconGridScroll: {
-    maxHeight: 180,
+    maxHeight: 300,
     marginBottom: 16,
   },
   iconGrid: {

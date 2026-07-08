@@ -1,15 +1,17 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
 import { Text, Button, TextInput, SegmentedButtons, IconButton, List, Surface } from 'react-native-paper';
 import { useAppStore } from '../../store/appStore';
 import { TransactionRepository } from '../../db/repositories';
 import { ThemeColors } from '../../styles/theme';
 
 import { useRouter } from 'expo-router';
+import SlideUpModal from '../../components/SlideUpModal';
+import { formatCurrency, getCurrencySymbol } from '../../services/utils';
 
 export default function AddTransactionOverlay() {
   const router = useRouter();
-  const { accounts, categories, theme, refreshTransactions, refreshAccounts } = useAppStore();
+  const { accounts, categories, theme, refreshTransactions, refreshAccounts, currency } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   // Forms states
@@ -143,39 +145,35 @@ export default function AddTransactionOverlay() {
           activeOutlineColor={activeColors.primary}
           textColor={activeColors.text}
           style={[styles.input, { backgroundColor: activeColors.surface }]}
-          left={<TextInput.Affix text="$ " />}
+          left={<TextInput.Affix text={`${getCurrencySymbol(currency)} `} />}
         />
 
         {/* Account Selection (Triggering Modal Dropdown) */}
         <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>
           {type === 'TRANSFER' ? 'From Account' : 'Account'}
         </Text>
-        <TouchableOpacity onPress={() => setShowAccountModal(true)} style={styles.dropdownTrigger}>
-          <TextInput
-            value={selectedAccount ? `${selectedAccount.name} ($${selectedAccount.balance})` : 'Select Account'}
-            editable={false}
-            mode="outlined"
-            activeOutlineColor={activeColors.primary}
-            textColor={activeColors.text}
-            style={{ backgroundColor: activeColors.surface }}
-            right={<TextInput.Icon icon="chevron-down" />}
-          />
+        <TouchableOpacity 
+          onPress={() => setShowAccountModal(true)} 
+          style={[styles.selectBox, { borderColor: activeColors.border, backgroundColor: activeColors.surface }]}
+        >
+          <Text style={{ color: selectedAccount ? activeColors.text : activeColors.textSecondary, fontSize: 15 }}>
+            {selectedAccount ? `${selectedAccount.name} (${formatCurrency(selectedAccount.balance, currency)})` : 'Select Account'}
+          </Text>
+          <IconButton icon="chevron-down" iconColor={activeColors.textSecondary} size={20} style={{ margin: 0 }} />
         </TouchableOpacity>
 
         {/* Transfer Destination Account Selector */}
         {type === 'TRANSFER' && (
           <>
             <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>To Account</Text>
-            <TouchableOpacity onPress={() => setShowToAccountModal(true)} style={styles.dropdownTrigger}>
-              <TextInput
-                value={selectedToAccount ? `${selectedToAccount.name} ($${selectedToAccount.balance})` : 'Select Destination Account'}
-                editable={false}
-                mode="outlined"
-                activeOutlineColor={activeColors.primary}
-                textColor={activeColors.text}
-                style={{ backgroundColor: activeColors.surface }}
-                right={<TextInput.Icon icon="chevron-down" />}
-              />
+            <TouchableOpacity 
+              onPress={() => setShowToAccountModal(true)} 
+              style={[styles.selectBox, { borderColor: activeColors.border, backgroundColor: activeColors.surface }]}
+            >
+              <Text style={{ color: selectedToAccount ? activeColors.text : activeColors.textSecondary, fontSize: 15 }}>
+                {selectedToAccount ? `${selectedToAccount.name} (${formatCurrency(selectedToAccount.balance, currency)})` : 'Select Destination Account'}
+              </Text>
+              <IconButton icon="chevron-down" iconColor={activeColors.textSecondary} size={20} style={{ margin: 0 }} />
             </TouchableOpacity>
           </>
         )}
@@ -184,16 +182,14 @@ export default function AddTransactionOverlay() {
         {type !== 'TRANSFER' && (
           <>
             <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>Category</Text>
-            <TouchableOpacity onPress={() => setShowCategoryModal(true)} style={styles.dropdownTrigger}>
-              <TextInput
-                value={selectedCategory ? selectedCategory.name : 'Select Category'}
-                editable={false}
-                mode="outlined"
-                activeOutlineColor={activeColors.primary}
-                textColor={activeColors.text}
-                style={{ backgroundColor: activeColors.surface }}
-                right={<TextInput.Icon icon="chevron-down" />}
-              />
+            <TouchableOpacity 
+              onPress={() => setShowCategoryModal(true)} 
+              style={[styles.selectBox, { borderColor: activeColors.border, backgroundColor: activeColors.surface }]}
+            >
+              <Text style={{ color: selectedCategory ? activeColors.text : activeColors.textSecondary, fontSize: 15 }}>
+                {selectedCategory ? selectedCategory.name : 'Select Category'}
+              </Text>
+              <IconButton icon="chevron-down" iconColor={activeColors.textSecondary} size={20} style={{ margin: 0 }} />
             </TouchableOpacity>
           </>
         )}
@@ -236,17 +232,23 @@ export default function AddTransactionOverlay() {
           MODAL PICKERS (DROPDOWNS)
           ───────────────────────────────────────────────────────────────────────────── */}
       
-      {/* Account Modal Picker */}
-      <Modal visible={showAccountModal} transparent animationType="slide">
-        <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowAccountModal(false)}>
-          <Surface style={[styles.modalContent, { backgroundColor: activeColors.surface }]} elevation={5}>
-            <Text style={[styles.modalTitle, { color: activeColors.text }]}>Select Account</Text>
-            <ScrollView>
-              {accounts.map((acc) => (
+      {/* Account SlideUpModal Picker */}
+      <SlideUpModal
+        visible={showAccountModal}
+        onClose={() => setShowAccountModal(false)}
+        backgroundColor={activeColors.surface}
+        indicatorColor={activeColors.border}
+      >
+        <View style={{ padding: 20, paddingBottom: 40 }}>
+          <Text style={[styles.modalTitle, { color: activeColors.text }]}>Select Account</Text>
+          <ScrollView>
+            {accounts
+              .filter((acc) => type !== 'TRANSFER' || acc.id !== toAccountId)
+              .map((acc) => (
                 <List.Item
                   key={acc.id}
                   title={acc.name}
-                  description={`${acc.type} • $${acc.balance}`}
+                  description={`${acc.type} • ${formatCurrency(acc.balance, currency)}`}
                   left={(props) => <List.Icon {...props} icon={acc.icon || 'wallet'} color={acc.color || activeColors.primary} />}
                   onPress={() => {
                     setAccountId(acc.id);
@@ -256,22 +258,27 @@ export default function AddTransactionOverlay() {
                   descriptionStyle={{ color: activeColors.textSecondary }}
                 />
               ))}
-            </ScrollView>
-          </Surface>
-        </TouchableOpacity>
-      </Modal>
+          </ScrollView>
+        </View>
+      </SlideUpModal>
 
-      {/* Transfer destination Account Modal Picker */}
-      <Modal visible={showToAccountModal} transparent animationType="slide">
-        <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowToAccountModal(false)}>
-          <Surface style={[styles.modalContent, { backgroundColor: activeColors.surface }]} elevation={5}>
-            <Text style={[styles.modalTitle, { color: activeColors.text }]}>Select Destination Account</Text>
-            <ScrollView>
-              {accounts.map((acc) => (
+      {/* Transfer destination Account SlideUpModal Picker */}
+      <SlideUpModal
+        visible={showToAccountModal}
+        onClose={() => setShowToAccountModal(false)}
+        backgroundColor={activeColors.surface}
+        indicatorColor={activeColors.border}
+      >
+        <View style={{ padding: 20, paddingBottom: 40 }}>
+          <Text style={[styles.modalTitle, { color: activeColors.text }]}>Select Destination Account</Text>
+          <ScrollView>
+            {accounts
+              .filter((acc) => acc.id !== accountId)
+              .map((acc) => (
                 <List.Item
                   key={acc.id}
                   title={acc.name}
-                  description={`${acc.type} • $${acc.balance}`}
+                  description={`${acc.type} • ${formatCurrency(acc.balance, currency)}`}
                   left={(props) => <List.Icon {...props} icon={acc.icon || 'wallet'} color={acc.color || activeColors.primary} />}
                   onPress={() => {
                     setToAccountId(acc.id);
@@ -281,35 +288,37 @@ export default function AddTransactionOverlay() {
                   descriptionStyle={{ color: activeColors.textSecondary }}
                 />
               ))}
-            </ScrollView>
-          </Surface>
-        </TouchableOpacity>
-      </Modal>
+          </ScrollView>
+        </View>
+      </SlideUpModal>
 
-      {/* Category Modal Picker */}
-      <Modal visible={showCategoryModal} transparent animationType="slide">
-        <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowCategoryModal(false)}>
-          <Surface style={[styles.modalContent, { backgroundColor: activeColors.surface }]} elevation={5}>
-            <Text style={[styles.modalTitle, { color: activeColors.text }]}>Select Category</Text>
-            <ScrollView>
-              {filteredCategories.map((cat) => (
-                <List.Item
-                  key={cat.id}
-                  title={cat.name}
-                  description={cat.type}
-                  left={(props) => <List.Icon {...props} icon={cat.icon || 'tag'} color={cat.color || activeColors.primary} />}
-                  onPress={() => {
-                    setCategoryId(cat.id);
-                    setShowCategoryModal(false);
-                  }}
-                  titleStyle={{ color: activeColors.text }}
-                  descriptionStyle={{ color: activeColors.textSecondary }}
-                />
-              ))}
-            </ScrollView>
-          </Surface>
-        </TouchableOpacity>
-      </Modal>
+      {/* Category SlideUpModal Picker */}
+      <SlideUpModal
+        visible={showCategoryModal}
+        onClose={() => setShowCategoryModal(false)}
+        backgroundColor={activeColors.surface}
+        indicatorColor={activeColors.border}
+      >
+        <View style={{ padding: 20, paddingBottom: 40 }}>
+          <Text style={[styles.modalTitle, { color: activeColors.text }]}>Select Category</Text>
+          <ScrollView>
+            {filteredCategories.map((cat) => (
+              <List.Item
+                key={cat.id}
+                title={cat.name}
+                description={cat.type}
+                left={(props) => <List.Icon {...props} icon={cat.icon || 'tag'} color={cat.color || activeColors.primary} />}
+                onPress={() => {
+                  setCategoryId(cat.id);
+                  setShowCategoryModal(false);
+                }}
+                titleStyle={{ color: activeColors.text }}
+                descriptionStyle={{ color: activeColors.textSecondary }}
+              />
+            ))}
+          </ScrollView>
+        </View>
+      </SlideUpModal>
     </View>
   );
 }
@@ -350,6 +359,17 @@ const styles = StyleSheet.create({
   },
   dropdownTrigger: {
     marginBottom: 10,
+  },
+  selectBox: {
+    height: 48,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingLeft: 14,
+    paddingRight: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
   saveBtn: {
     marginTop: 20,

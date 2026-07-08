@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert, Modal, TouchableOpacity, Switch, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Platform } from 'react-native';
 import { Text, IconButton, Button, Surface, TextInput } from 'react-native-paper';
 import { useAppStore } from '../../store/appStore';
-import { AccountRepository } from '../../db/repositories';
+import { AccountRepository, TransactionRepository } from '../../db/repositories';
 import { ThemeColors } from '../../styles/theme';
 import { useRouter } from 'expo-router';
+import SlideUpModal from '../../components/SlideUpModal';
+import { formatCurrency, getCurrencySymbol } from '../../services/utils';
+import PremiumSwitch from '../../components/PremiumSwitch';
 
 export default function ManageAccountsOverlay() {
   const router = useRouter();
-  const { accounts, theme, refreshAccounts } = useAppStore();
+  const { accounts, transactions, theme, refreshAccounts, refreshTransactions, currency } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   // Modal Control
@@ -147,7 +150,7 @@ export default function ManageAccountsOverlay() {
           type,
           openingBalance: startBalance,
           balance: startBalance,
-          currency: 'USD',
+          currency: currency,
           icon: selectedIcon,
           color: selectedColor,
           isActive: true,
@@ -166,26 +169,50 @@ export default function ManageAccountsOverlay() {
   };
 
   const handleDelete = async (id: string, accountName: string) => {
-    Alert.alert(
-      'Delete Account',
-      `Are you sure you want to delete account "${accountName}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await AccountRepository.delete(id);
-              await refreshAccounts();
-              setShowModal(false);
-            } catch (err: any) {
-              Alert.alert('Error', `Failed to delete account: ${err.message}`);
-            }
-          },
-        },
-      ]
+    const relatedTransactions = transactions.filter(
+      (t: any) => t.accountId === id || t.toAccountId === id
     );
+    const hasTransactions = relatedTransactions.length > 0;
+
+    const performDelete = async () => {
+      try {
+        if (hasTransactions) {
+          for (const t of relatedTransactions) {
+            await TransactionRepository.delete(t.id);
+          }
+        }
+        await AccountRepository.delete(id);
+        await refreshAccounts();
+        await refreshTransactions();
+        setShowModal(false);
+      } catch (err: any) {
+        Alert.alert('Error', `Failed to delete account: ${err.message}`);
+      }
+    };
+
+    const message = hasTransactions
+      ? `Account "${accountName}" has related transaction records. Deleting this account will also delete all of its transactions. Are you sure you want to delete all?`
+      : `Are you sure you want to delete account "${accountName}"?`;
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm(message);
+      if (confirmed) {
+        await performDelete();
+      }
+    } else {
+      Alert.alert(
+        'Delete Account',
+        message,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete All',
+            style: 'destructive',
+            onPress: performDelete,
+          },
+        ]
+      );
+    }
   };
 
   return (
@@ -219,14 +246,14 @@ export default function ManageAccountsOverlay() {
                   ) : null}
                 </View>
                 <Text style={[styles.accountDesc, { color: activeColors.textSecondary }]}>
-                  {acc.type} • Opening: ${acc.openingBalance}
+                  {acc.type} • Opening: {formatCurrency(acc.openingBalance, currency)}
                 </Text>
               </View>
             </View>
 
             <View style={styles.cardRight}>
               <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-                <Text style={[styles.balanceText, { color: activeColors.text }]}>${acc.balance}</Text>
+                <Text style={[styles.balanceText, { color: activeColors.text }]}>{formatCurrency(acc.balance, currency)}</Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <IconButton
@@ -241,6 +268,16 @@ export default function ManageAccountsOverlay() {
                     } catch (err: any) {
                       Alert.alert('Error', `Failed to set default account: ${err.message}`);
                     }
+                  }}
+                  style={{ margin: 0 }}
+                />
+                <IconButton
+                  icon="pencil-outline"
+                  iconColor={activeColors.textSecondary}
+                  size={20}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleOpenEdit(acc);
                   }}
                   style={{ margin: 0 }}
                 />
@@ -272,129 +309,130 @@ export default function ManageAccountsOverlay() {
         <Text style={[styles.addBtnText, { color: activeColors.background }]}>Add Account</Text>
       </TouchableOpacity>
 
-      {/* Add / Edit Account Popup Modal */}
-      <Modal visible={showModal} transparent animationType="slide" onRequestClose={() => setShowModal(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowModal(false)}>
-          <TouchableOpacity activeOpacity={1} style={{ width: '100%' }}>
-            <Surface style={[styles.modalContent, { backgroundColor: activeColors.surface }]} elevation={5}>
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: activeColors.text }]}>
-                  {editingAccount ? 'Edit Account' : 'New Account'}
-                </Text>
-                <IconButton icon="close" size={20} iconColor={activeColors.text} onPress={() => setShowModal(false)} />
+      {/* Add / Edit Account Popup SlideUpModal */}
+      <SlideUpModal
+        visible={showModal}
+        onClose={() => setShowModal(false)}
+        backgroundColor={activeColors.surface}
+        indicatorColor={activeColors.border}
+      >
+        <View style={{ padding: 20, paddingBottom: 40 }}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: activeColors.text }]}>
+              {editingAccount ? 'Edit Account' : 'New Account'}
+            </Text>
+            <IconButton icon="close" size={20} iconColor={activeColors.text} onPress={() => setShowModal(false)} />
+          </View>
+
+          <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <TextInput
+              label="Account Name"
+              value={name}
+              onChangeText={setName}
+              mode="outlined"
+              activeOutlineColor={activeColors.primary}
+              textColor={activeColors.text}
+              style={[styles.input, { backgroundColor: activeColors.surface }]}
+            />
+
+            <TextInput
+              label="Opening Balance"
+              value={openingBalance}
+              onChangeText={setOpeningBalance}
+              keyboardType="numeric"
+              mode="outlined"
+              activeOutlineColor={activeColors.primary}
+              textColor={activeColors.text}
+              style={[styles.input, { backgroundColor: activeColors.surface }]}
+              left={<TextInput.Affix text={`${getCurrencySymbol(currency)} `} />}
+            />
+
+            <View style={[styles.switchRow, { borderBottomColor: activeColors.border }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.switchLabel, { color: activeColors.text }]}>Set as Default Account</Text>
+                <Text style={[styles.switchSub, { color: activeColors.textSecondary }]}>Auto-select this account for transactions</Text>
               </View>
+              <PremiumSwitch
+                value={isDefault}
+                onValueChange={setIsDefault}
+                activeColor={activeColors.primary}
+                inactiveColor={theme === 'dark' ? '#3e3e3e' : '#e0e0e0'}
+              />
+            </View>
 
-              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-                <TextInput
-                  label="Account Name"
-                  value={name}
-                  onChangeText={setName}
-                  mode="outlined"
-                  activeOutlineColor={activeColors.primary}
-                  textColor={activeColors.text}
-                  style={[styles.input, { backgroundColor: activeColors.surface }]}
-                />
-
-                <TextInput
-                  label="Opening Balance"
-                  value={openingBalance}
-                  onChangeText={setOpeningBalance}
-                  keyboardType="numeric"
-                  mode="outlined"
-                  activeOutlineColor={activeColors.primary}
-                  textColor={activeColors.text}
-                  style={[styles.input, { backgroundColor: activeColors.surface }]}
-                  left={<TextInput.Affix text="$ " />}
-                />
-
-                <View style={[styles.switchRow, { borderBottomColor: activeColors.border }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.switchLabel, { color: activeColors.text }]}>Set as Default Account</Text>
-                    <Text style={[styles.switchSub, { color: activeColors.textSecondary }]}>Auto-select this account for transactions</Text>
-                  </View>
-                  <Switch
-                    value={isDefault}
-                    onValueChange={setIsDefault}
-                    trackColor={{ false: activeColors.border, true: activeColors.primary }}
-                    thumbColor={Platform.OS === 'android' ? (isDefault ? activeColors.primary : '#f4f3f4') : undefined}
-                  />
-                </View>
-
-                {/* Type Grid */}
-                <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>Account Type</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.typeScroll}>
-                  {ACCOUNT_TYPES.map((t) => (
-                    <Button
-                      key={t}
-                      mode={type === t ? 'contained' : 'outlined'}
-                      onPress={() => handleTypeChange(t)}
-                      style={styles.typeBtn}
-                      theme={{ colors: { primary: activeColors.primary } }}
-                    >
-                      {t}
-                    </Button>
-                  ))}
-                </ScrollView>
-
-                {/* Color Swatches */}
-                <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>Theme Color</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.colorRow}>
-                  {COLORS.map((c) => (
-                    <TouchableOpacity
-                      key={c}
-                      onPress={() => setSelectedColor(c)}
-                      style={[styles.colorSwatch, { backgroundColor: c }]}
-                    >
-                      {selectedColor === c && <IconButton icon="check" iconColor="#FFF" size={18} style={{ margin: 0 }} />}
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                {/* Icons Grid */}
-                <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>Account Icon</Text>
-                <View style={styles.iconGrid}>
-                  {ICONS.map((ico) => (
-                    <TouchableOpacity
-                      key={ico}
-                      onPress={() => setSelectedIcon(ico)}
-                      style={[
-                        styles.iconCell,
-                        {
-                          borderColor: selectedIcon === ico ? activeColors.primary : activeColors.border,
-                          backgroundColor: selectedIcon === ico ? `${activeColors.primary}15` : 'transparent',
-                        },
-                      ]}
-                    >
-                      <IconButton icon={ico} iconColor={selectedIcon === ico ? activeColors.primary : activeColors.textSecondary} size={20} style={{ margin: 0 }} />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-
-              <View style={styles.modalActions}>
-                {editingAccount && editingAccount.id !== 'acc_cash' && (
-                  <Button
-                    mode="outlined"
-                    textColor={activeColors.error}
-                    style={[styles.modalDeleteBtn, { borderColor: activeColors.error }]}
-                    onPress={() => handleDelete(editingAccount.id, editingAccount.name)}
-                  >
-                    Delete
-                  </Button>
-                )}
+            {/* Type Grid */}
+            <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>Account Type</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.typeScroll}>
+              {ACCOUNT_TYPES.map((t) => (
                 <Button
-                  mode="contained"
-                  onPress={handleSave}
-                  style={[styles.modalSaveBtn, { backgroundColor: activeColors.primary }]}
-                  labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
+                  key={t}
+                  mode={type === t ? 'contained' : 'outlined'}
+                  onPress={() => handleTypeChange(t)}
+                  style={styles.typeBtn}
+                  theme={{ colors: { primary: activeColors.primary } }}
                 >
-                  Save
+                  {t}
                 </Button>
-              </View>
-            </Surface>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+              ))}
+            </ScrollView>
+
+            {/* Color Swatches */}
+            <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>Theme Color</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.colorRow}>
+              {COLORS.map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  onPress={() => setSelectedColor(c)}
+                  style={[styles.colorSwatch, { backgroundColor: c }]}
+                >
+                  {selectedColor === c && <IconButton icon="check" iconColor="#FFF" size={18} style={{ margin: 0 }} />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* Icons Grid */}
+            <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>Account Icon</Text>
+            <View style={styles.iconGrid}>
+              {ICONS.map((ico) => (
+                <TouchableOpacity
+                  key={ico}
+                  onPress={() => setSelectedIcon(ico)}
+                  style={[
+                    styles.iconCell,
+                    {
+                      borderColor: selectedIcon === ico ? activeColors.primary : activeColors.border,
+                      backgroundColor: selectedIcon === ico ? `${activeColors.primary}15` : 'transparent',
+                    },
+                  ]}
+                >
+                  <IconButton icon={ico} iconColor={selectedIcon === ico ? activeColors.primary : activeColors.textSecondary} size={20} style={{ margin: 0 }} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          <View style={styles.modalActions}>
+            {editingAccount && editingAccount.id !== 'acc_cash' && (
+              <Button
+                mode="outlined"
+                textColor={activeColors.error}
+                style={[styles.modalDeleteBtn, { borderColor: activeColors.error }]}
+                onPress={() => handleDelete(editingAccount.id, editingAccount.name)}
+              >
+                Delete
+              </Button>
+            )}
+            <Button
+              mode="contained"
+              onPress={handleSave}
+              style={[styles.modalSaveBtn, { backgroundColor: activeColors.primary }]}
+              labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
+            >
+              Save
+            </Button>
+          </View>
+        </View>
+      </SlideUpModal>
     </View>
   );
 }
@@ -510,7 +548,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   modalScroll: {
-    maxHeight: '70%',
+    maxHeight: '82%',
   },
   input: {
     marginBottom: 16,
