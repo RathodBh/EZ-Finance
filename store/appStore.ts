@@ -38,6 +38,8 @@ interface AppState {
   // Auth Session State
   user: UserSession | null;
   authLoading: boolean;
+  tempGoogleSession: UserSession | null;
+  setTempGoogleSession: (session: UserSession | null) => void;
 
   // Data States
   accounts: any[];
@@ -91,6 +93,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeTxToEdit: null,
   user: null,
   authLoading: false,
+  tempGoogleSession: null,
+  setTempGoogleSession: (session) => set({ tempGoogleSession: session }),
   accounts: [],
   categories: [],
   transactions: [],
@@ -105,6 +109,40 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       // 1. Initialize SQLite Database
       await initDb();
+      
+      // 1b. Check for Google OAuth Redirect hash on web
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const hash = window.location.hash;
+        if (hash && hash.includes('access_token=')) {
+          const params = new URLSearchParams(hash.substring(1));
+          const accessToken = params.get('access_token');
+          if (accessToken) {
+            // Clean URL hash
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+            try {
+              set({ authLoading: true });
+              const session = await AuthService.handleRedirectCallback(accessToken);
+              
+              // Check if profile exists and has a currency preference
+              const profile = await UserRepository.getProfile(session.id);
+              const savedCurrency = profile?.currency;
+              
+              if (savedCurrency) {
+                // Complete login directly
+                set({ user: session, currency: savedCurrency, authLoading: false, appLocked: false });
+                await get().refreshAllData();
+                get().triggerSync();
+              } else {
+                // Save temp session to let OnboardingScreen trigger currency select step
+                set({ tempGoogleSession: session, authLoading: false });
+              }
+            } catch (err) {
+              console.error('Error handling redirect login:', err);
+              set({ authLoading: false });
+            }
+          }
+        }
+      }
       
       // 2. Fetch User Session
       const user = await AuthService.getCurrentUser();
@@ -341,7 +379,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   login: async (session: UserSession, currencyPreference = 'USD') => {
     set({ authLoading: true });
     try {
-      set({ user: session, currency: currencyPreference, authLoading: false, appLocked: false });
+      set({ user: session, currency: currencyPreference, tempGoogleSession: null, authLoading: false, appLocked: false });
       if (Platform.OS === 'web') {
         localStorage.setItem('currency', currencyPreference);
       } else {

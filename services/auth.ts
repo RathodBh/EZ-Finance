@@ -139,69 +139,46 @@ export const AuthService = {
    * Google Sign-in on Web using Google Identity Services (GSI/GIS) Token Client
    */
   async signInWeb(): Promise<UserSession> {
-    await loadGisScript();
+    if (typeof window === 'undefined') {
+      throw new Error('Google Sign-In is only supported in a browser environment.');
+    }
 
-    return new Promise((resolve, reject) => {
-      try {
-        if (!(window as any).google || !(window as any).google.accounts) {
-          throw new Error('Google Identity Services library failed to load');
-        }
+    const client_id = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    const redirect_uri = window.location.origin;
+    const scope = encodeURIComponent('email profile openid https://www.googleapis.com/auth/drive.appdata');
+    const response_type = 'token';
+    const prompt = 'consent';
 
-        const client = (window as any).google.accounts.oauth2.initTokenClient({
-          client_id: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-          scope: 'email profile openid https://www.googleapis.com/auth/drive.appdata',
-          callback: async (tokenResponse: any) => {
-            if (tokenResponse.error) {
-              reject(tokenResponse);
-              return;
-            }
-            if (tokenResponse.access_token) {
-              try {
-                // Fetch user profile using access token
-                const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-                  headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
-                });
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${client_id}&redirect_uri=${encodeURIComponent(redirect_uri)}&response_type=${response_type}&scope=${scope}&prompt=${prompt}`;
 
-                if (!res.ok) {
-                  throw new Error(`Failed to fetch user profile: ${res.statusText}`);
-                }
+    window.location.href = authUrl;
 
-                const data = await res.json();
-                const session: UserSession = {
-                  id: data.sub,
-                  email: data.email,
-                  name: data.name || 'User',
-                  photoUrl: data.picture || null,
-                };
+    // Return a promise that never resolves as the window is navigating away
+    return new Promise(() => {});
+  },
 
-                // Persist session locally
-                await this.persistSession(session);
-                await setSecureItem('googleAccessToken', tokenResponse.access_token);
-
-                // Sync user profile with local DB
-                await UserRepository.upsertProfile({
-                  id: session.id,
-                  googleId: session.id,
-                  email: session.email,
-                  displayName: session.name,
-                  photoUrl: session.photoUrl || undefined,
-                });
-
-                resolve(session);
-              } catch (err) {
-                reject(err);
-              }
-            } else {
-              reject(new Error('Access token not returned from Google login'));
-            }
-          },
-        });
-
-        client.requestAccessToken({ prompt: 'consent' });
-      } catch (err) {
-        reject(err);
-      }
+  async handleRedirectCallback(accessToken: string): Promise<UserSession> {
+    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch user profile: ${res.statusText}`);
+    }
+
+    const data = await res.json();
+    const session: UserSession = {
+      id: data.sub,
+      email: data.email,
+      name: data.name || 'User',
+      photoUrl: data.picture || null,
+    };
+
+    // Persist session locally
+    await this.persistSession(session);
+    await setSecureItem('googleAccessToken', accessToken);
+
+    return session;
   },
 
   /**
@@ -223,15 +200,6 @@ export const AuthService = {
       
       // Persist session locally
       await this.persistSession(session);
-
-      // Sync user profile with local DB
-      await UserRepository.upsertProfile({
-        id: session.id,
-        googleId: session.id,
-        email: session.email,
-        displayName: session.name,
-        photoUrl: session.photoUrl || undefined,
-      });
 
       return session;
     } catch (error: any) {

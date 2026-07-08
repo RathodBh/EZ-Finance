@@ -19,7 +19,7 @@ import { AuthService } from "../services/auth";
 const { width } = Dimensions.get("window");
 
 export default function OnboardingScreen() {
-  const { login, loginOffline, authLoading, theme } = useAppStore();
+  const { login, loginOffline, authLoading, theme, tempGoogleSession, setTempGoogleSession } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   const [step, setStep] = React.useState<'WELCOME' | 'OFFLINE_NAME' | 'CURRENCY_SELECT'>('WELCOME');
@@ -27,9 +27,15 @@ export default function OnboardingScreen() {
   const [currencyPref, setCurrencyPref] = React.useState<string>('USD');
   const [showCurrencyModal, setShowCurrencyModal] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [tempGoogleSession, setTempGoogleSession] = React.useState<any | null>(null);
   const [isOfflineFlow, setIsOfflineFlow] = React.useState(false);
   const [googleLoading, setGoogleLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (tempGoogleSession) {
+      setIsOfflineFlow(false);
+      setStep('CURRENCY_SELECT');
+    }
+  }, [tempGoogleSession]);
 
   const filteredCurrencies = React.useMemo(() => {
     return CURRENCIES.filter(
