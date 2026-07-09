@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, Alert } from 'react-native';
+import { View, StyleSheet, FlatList, TouchableOpacity, Alert, Platform } from 'react-native';
 import { Text, Searchbar, Chip, IconButton, Card } from 'react-native-paper';
+import { useRouter } from 'expo-router';
 import { useAppStore } from '../store/appStore';
 import { TransactionRepository } from '../db/repositories';
 import { ThemeColors } from '../styles/theme';
@@ -9,7 +10,8 @@ import DatePickerModal from '../components/DatePickerModal';
 import { formatCurrency as formatCurrencyUtil } from '../services/utils';
 
 export default function TransactionsScreen() {
-  const { transactions, accounts, categories, theme, refreshTransactions, refreshAccounts, currency } = useAppStore();
+  const router = useRouter();
+  const { transactions, accounts, categories, theme, refreshTransactions, refreshAccounts, currency, setShowTxModal } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE' | 'TRANSFER'>('ALL');
   
@@ -52,27 +54,41 @@ export default function TransactionsScreen() {
     });
   }, [transactions, searchQuery, activeFilter, categories, accounts, startDate, endDate]);
 
+  const handleEditTx = (tx: any) => {
+    setShowTxModal(true, tx);
+    router.push('/add-transaction');
+  };
+
   const handleDeleteTx = (id: string) => {
-    Alert.alert(
-      'Delete Transaction',
-      'Are you sure you want to permanently delete this transaction?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Delete', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await TransactionRepository.delete(id);
-              await refreshTransactions();
-              await refreshAccounts(); // Refresh account balances as deletion recalculates balance
-            } catch (err) {
-              console.error('Delete transaction failed:', err);
-            }
+    const doDelete = async () => {
+      try {
+        await TransactionRepository.delete(id);
+        await refreshTransactions();
+        await refreshAccounts(); // Refresh account balances as deletion recalculates balance
+      } catch (err) {
+        console.error('Delete transaction failed:', err);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      const confirmDelete = window.confirm('Are you sure you want to permanently delete this transaction?');
+      if (confirmDelete) {
+        doDelete();
+      }
+    } else {
+      Alert.alert(
+        'Delete Transaction',
+        'Are you sure you want to permanently delete this transaction?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Delete', 
+            style: 'destructive',
+            onPress: doDelete
           }
-        }
-      ]
-    );
+        ]
+      );
+    }
   };
 
   const formatDate = (epochMs: number) => {
@@ -203,6 +219,9 @@ export default function TransactionsScreen() {
                 >
                   {isExpense ? '-' : isTransfer ? '' : '+'}{formatCurrency(item.amount)}
                 </Text>
+                <TouchableOpacity onPress={() => handleEditTx(item)}>
+                  <IconButton icon="pencil-outline" iconColor={activeColors.primary} size={20} style={styles.editBtn} />
+                </TouchableOpacity>
                 <TouchableOpacity onPress={() => handleDeleteTx(item.id)}>
                   <IconButton icon="trash-can-outline" iconColor={activeColors.error} size={20} style={styles.deleteBtn} />
                 </TouchableOpacity>
@@ -317,6 +336,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: 'bold',
     marginRight: 4,
+  },
+  editBtn: {
+    margin: 0,
+    padding: 0,
   },
   deleteBtn: {
     margin: 0,

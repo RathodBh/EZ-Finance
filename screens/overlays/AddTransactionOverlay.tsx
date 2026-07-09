@@ -11,17 +11,17 @@ import { formatCurrency, getCurrencySymbol } from '../../services/utils';
 
 export default function AddTransactionOverlay() {
   const router = useRouter();
-  const { accounts, categories, theme, refreshTransactions, refreshAccounts, currency } = useAppStore();
+  const { accounts, categories, theme, refreshTransactions, refreshAccounts, currency, activeTxToEdit, setShowTxModal } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   // Forms states
-  const [type, setType] = useState<'INCOME' | 'EXPENSE' | 'TRANSFER'>('EXPENSE');
-  const [amount, setAmount] = useState('');
+  const [type, setType] = useState<'INCOME' | 'EXPENSE' | 'TRANSFER'>(activeTxToEdit?.type || 'EXPENSE');
+  const [amount, setAmount] = useState(activeTxToEdit ? String(activeTxToEdit.amount) : '');
 
   const defaultAccount = useMemo(() => accounts.find(a => a.isDefault) || accounts[0], [accounts]);
-  const [accountId, setAccountId] = useState(defaultAccount?.id || '');
-  const [categoryId, setCategoryId] = useState(categories[0]?.id || '');
-  const [toAccountId, setToAccountId] = useState('');
+  const [accountId, setAccountId] = useState(activeTxToEdit?.accountId || defaultAccount?.id || '');
+  const [categoryId, setCategoryId] = useState(activeTxToEdit?.categoryId || categories[0]?.id || '');
+  const [toAccountId, setToAccountId] = useState(activeTxToEdit?.toAccountId || '');
 
   React.useEffect(() => {
     if (defaultAccount && !accountId) {
@@ -38,9 +38,9 @@ export default function AddTransactionOverlay() {
     }
   }, [accounts, accountId]);
 
-  const [note, setNote] = useState('');
-  const [merchant, setMerchant] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('CARD');
+  const [note, setNote] = useState(activeTxToEdit?.note || '');
+  const [merchant, setMerchant] = useState(activeTxToEdit?.merchant || '');
+  const [paymentMethod, setPaymentMethod] = useState(activeTxToEdit?.paymentMethod || 'CARD');
 
   // Modal pickers visibility states
   const [showAccountModal, setShowAccountModal] = useState(false);
@@ -80,25 +80,47 @@ export default function AddTransactionOverlay() {
     }
 
     try {
-      const payload: any = {
-        id: 'tx_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36),
-        amount: numAmount,
-        type,
-        accountId,
-        categoryId: type === 'TRANSFER' ? 'transfer_cat_id' : categoryId,
-        note: note.trim() || null,
-        merchant: merchant.trim() || null,
-        paymentMethod: type === 'TRANSFER' ? 'TRANSFER' : paymentMethod,
-        date: Date.now(),
-        isRecurring: false,
-        isFavorite: false,
-      };
+      if (activeTxToEdit) {
+        const payload: any = {
+          amount: numAmount,
+          type,
+          accountId,
+          categoryId: type === 'TRANSFER' ? 'transfer_cat_id' : categoryId,
+          note: note.trim() || null,
+          merchant: merchant.trim() || null,
+          paymentMethod: type === 'TRANSFER' ? 'TRANSFER' : paymentMethod,
+        };
 
-      if (type === 'TRANSFER') {
-        payload.toAccountId = toAccountId;
+        if (type === 'TRANSFER') {
+          payload.toAccountId = toAccountId;
+        } else {
+          payload.toAccountId = null;
+        }
+
+        await TransactionRepository.update(activeTxToEdit.id, payload);
+      } else {
+        const payload: any = {
+          id: 'tx_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36),
+          amount: numAmount,
+          type,
+          accountId,
+          categoryId: type === 'TRANSFER' ? 'transfer_cat_id' : categoryId,
+          note: note.trim() || null,
+          merchant: merchant.trim() || null,
+          paymentMethod: type === 'TRANSFER' ? 'TRANSFER' : paymentMethod,
+          date: Date.now(),
+          isRecurring: false,
+          isFavorite: false,
+        };
+
+        if (type === 'TRANSFER') {
+          payload.toAccountId = toAccountId;
+        }
+
+        await TransactionRepository.insert(payload);
       }
 
-      await TransactionRepository.insert(payload);
+      setShowTxModal(false, null);
       await refreshTransactions();
       await refreshAccounts();
       router.back();
@@ -111,8 +133,18 @@ export default function AddTransactionOverlay() {
     <View style={[styles.container, { backgroundColor: activeColors.background }]}>
       {/* Header bar */}
       <View style={styles.header}>
-        <IconButton icon="close" size={24} iconColor={activeColors.text} onPress={() => router.back()} />
-        <Text style={[styles.title, { color: activeColors.text }]}>Add Transaction</Text>
+        <IconButton 
+          icon="close" 
+          size={24} 
+          iconColor={activeColors.text} 
+          onPress={() => {
+            setShowTxModal(false, null);
+            router.back();
+          }} 
+        />
+        <Text style={[styles.title, { color: activeColors.text }]}>
+          {activeTxToEdit ? 'Edit Transaction' : 'Add Transaction'}
+        </Text>
         <IconButton icon="check" size={24} iconColor={activeColors.primary} onPress={handleSave} />
       </View>
 

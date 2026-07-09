@@ -20,7 +20,8 @@ export default function DashboardScreen() {
     triggerSync, 
     syncLoading,
     user,
-    currency
+    currency,
+    setShowTxModal
   } = useAppStore();
 
   const activeColors = ThemeColors[theme];
@@ -248,7 +249,10 @@ export default function DashboardScreen() {
         icon="plus"
         style={[styles.fab, { backgroundColor: activeColors.primary }]}
         color={activeColors.background}
-        onPress={() => router.push('/add-transaction')}
+        onPress={() => {
+          setShowTxModal(false, null);
+          router.push('/add-transaction');
+        }}
       />
     </View>
   );

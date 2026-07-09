@@ -784,7 +784,8 @@ const styles = StyleSheet.create({
   profileContent: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
   },
   profileMeta: {
     marginLeft: 16,
