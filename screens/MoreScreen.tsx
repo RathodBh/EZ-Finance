@@ -17,6 +17,8 @@ import SlideUpModal from "../components/SlideUpModal";
 import PremiumSwitch from "../components/PremiumSwitch";
 import Papa from "papaparse";
 import { Platform } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
+import { ExportImportService } from "../services/exportImportService";
 
 let Sharing: any = null;
 let FileSystem: any = null;
@@ -64,6 +66,7 @@ export default function MoreScreen() {
     setCurrency,
     notificationsEnabled,
     toggleNotifications,
+    showToast,
   } = useAppStore();
 
   const activeColors = ThemeColors[theme];
@@ -82,7 +85,7 @@ export default function MoreScreen() {
   const handleExportCSV = async () => {
     try {
       if (transactions.length === 0) {
-        Alert.alert("No Data", "There are no transactions to export.");
+        showToast("There are no transactions to export.", "info");
         return;
       }
 
@@ -121,55 +124,88 @@ export default function MoreScreen() {
           dialogTitle: "Export Transactions CSV",
         });
       } else {
-        Alert.alert(
-          "Export Failed",
-          "Sharing mechanism is not available on this device.",
-        );
+        showToast("Sharing mechanism is not available on this device.", "error");
       }
     } catch (err: any) {
-      Alert.alert("Error", `Failed to export CSV: ${err.message}`);
+      showToast(`Failed to export CSV: ${err.message}`, "error");
     }
   };
 
   const handleExportJSON = async () => {
     try {
-      if (transactions.length === 0) {
-        Alert.alert("No Data", "There are no transactions to backup.");
-        return;
-      }
-
-      const backupString = JSON.stringify(transactions, null, 2);
-
-      if (Platform.OS === "web") {
-        const blob = new Blob([backupString], {
-          type: "application/json;charset=utf-8;",
-        });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", "ezfinance_backup.json");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        return;
-      }
-
-      const fileUri = `${FileSystem.cacheDirectory}ezfinance_backup.json`;
-      await FileSystem.writeAsStringAsync(fileUri, backupString);
-
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri, {
-          mimeType: "application/json",
-          dialogTitle: "Export Transactions JSON Backup",
-        });
-      } else {
-        Alert.alert(
-          "Export Failed",
-          "Sharing mechanism is not available on this device.",
-        );
-      }
+      await ExportImportService.exportBackup();
     } catch (err: any) {
-      Alert.alert("Error", `Failed to export JSON backup: ${err.message}`);
+      showToast(`Failed to export JSON backup: ${err.message}`, "error");
+    }
+  };
+
+  const handleImportJSON = async () => {
+    try {
+      // 1. Confirm restore from user
+      if (Platform.OS === "web") {
+        const confirmRestore = window.confirm(
+          "Restore Backup\n\nWARNING: Restoring a backup will overwrite all your current accounts, categories, and transactions with the backup file data. This action cannot be undone.\n\nDo you want to proceed?"
+        );
+        if (!confirmRestore) return;
+      } else {
+        const userClicked = await new Promise((resolve) => {
+          Alert.alert(
+            "Restore Backup",
+            "WARNING: Restoring a backup will overwrite all your current accounts, categories, and transactions with the backup file data. This action cannot be undone.\n\nDo you want to proceed?",
+            [
+              {
+                text: "Cancel",
+                onPress: () => resolve(false),
+                style: "cancel",
+              },
+              { text: "Restore", onPress: () => resolve(true), style: "destructive" },
+            ]
+          );
+        });
+        if (!userClicked) return;
+      }
+
+      // 2. Select file & restore
+      if (Platform.OS === "web") {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".json";
+        input.onchange = async (e: any) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = async (evt: any) => {
+            try {
+              const content = evt.target.result;
+              const result = await ExportImportService.importBackup(content);
+              await refreshAllData();
+              showToast(`Backup restored successfully! ${result.recordsCount} records imported.`, "success");
+            } catch (err: any) {
+              showToast(`Failed to restore backup: ${err.message}`, "error");
+            }
+          };
+          reader.readAsText(file);
+        };
+        input.click();
+        return;
+      }
+
+      const pickerResult = await DocumentPicker.getDocumentAsync({
+        type: "application/json",
+        copyToCacheDirectory: true,
+      });
+
+      if (pickerResult.canceled || !pickerResult.assets || pickerResult.assets.length === 0) {
+        return;
+      }
+
+      const asset = pickerResult.assets[0];
+      const fileContent = await FileSystem.readAsStringAsync(asset.uri);
+      const result = await ExportImportService.importBackup(fileContent);
+      await refreshAllData();
+      showToast(`Successfully restored ${result.recordsCount} records from the backup file.`, "success");
+    } catch (err: any) {
+      showToast(`Failed to restore backup: ${err.message}`, "error");
     }
   };
 
@@ -199,16 +235,10 @@ export default function MoreScreen() {
       }
 
       await connectGoogleAccount();
-      Alert.alert(
-        "Success",
-        "Google account connected successfully and data migrated!",
-      );
+      showToast("Google account connected successfully and data migrated!", "success");
     } catch (err: any) {
       console.error("Failed to connect Google account:", err);
-      Alert.alert(
-        "Connection Failed",
-        "Unable to authenticate with Google. Please try again.",
-      );
+      showToast("Unable to authenticate with Google. Please try again.", "error");
     }
   };
 
@@ -665,8 +695,8 @@ export default function MoreScreen() {
         />
 
         <List.Item
-          title="Export JSON Backup"
-          description="Download database backup locally"
+          title="Export Full JSON Backup"
+          description="Download complete database backup locally"
           left={(props) => (
             <List.Icon
               {...props}
@@ -675,6 +705,28 @@ export default function MoreScreen() {
             />
           )}
           onPress={handleExportJSON}
+          style={[
+            styles.listItem,
+            {
+              backgroundColor: activeColors.surface,
+              borderColor: activeColors.border,
+            },
+          ]}
+          titleStyle={{ color: activeColors.text }}
+          descriptionStyle={{ color: activeColors.textSecondary }}
+        />
+
+        <List.Item
+          title="Import JSON Backup"
+          description="Restore accounts, categories, and transactions"
+          left={(props) => (
+            <List.Icon
+              {...props}
+              icon="database-import-outline"
+              color={activeColors.text}
+            />
+          )}
+          onPress={handleImportJSON}
           style={[
             styles.listItem,
             {

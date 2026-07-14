@@ -1,13 +1,13 @@
 import React, { useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Slot, useRouter, useSegments } from 'expo-router';
-import { Provider as PaperProvider } from 'react-native-paper';
+import { Provider as PaperProvider, Snackbar } from 'react-native-paper';
 import { StatusBar } from 'expo-status-bar';
 import { useAppStore } from '../store/appStore';
 import { paperDarkTheme, paperLightTheme, ThemeColors } from '../styles/theme';
 
 export default function RootLayout() {
-  const { initApp, user, authLoading, theme, dbInitialized, isBootstrapping } = useAppStore();
+  const { initApp, user, authLoading, theme, dbInitialized, isBootstrapping, toast, hideToast } = useAppStore();
   const segments = useSegments();
   const router = useRouter();
 
@@ -46,6 +46,30 @@ export default function RootLayout() {
     <PaperProvider theme={paperTheme}>
       <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
       <Slot />
+      <Snackbar
+        visible={toast.visible}
+        onDismiss={hideToast}
+        duration={3000}
+        style={{
+          backgroundColor:
+            toast.type === 'error'
+              ? activeColors.error
+              : toast.type === 'success'
+              ? activeColors.secondary
+              : activeColors.surfaceVariant,
+        }}
+        theme={{
+          colors: {
+            accent: activeColors.text,
+          }
+        }}
+        action={{
+          label: 'Dismiss',
+          onPress: hideToast,
+        }}
+      >
+        {toast.message}
+      </Snackbar>
     </PaperProvider>
   );
 }

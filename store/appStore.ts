@@ -79,6 +79,15 @@ interface AppState {
 
   // Sync Action
   triggerSync: () => Promise<void>;
+
+  // Toast state & actions
+  toast: {
+    visible: boolean;
+    message: string;
+    type: 'success' | 'error' | 'info';
+  };
+  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  hideToast: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -104,6 +113,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   syncLoading: false,
   lastSyncTime: null,
   autoSyncEnabled: false,
+
+  toast: {
+    visible: false,
+    message: '',
+    type: 'info',
+  },
+  showToast: (message, type = 'info') => {
+    set({ toast: { visible: true, message, type } });
+  },
+  hideToast: () => {
+    set((state) => ({ toast: { ...state.toast, visible: false } }));
+  },
 
   initApp: async () => {
     try {
@@ -573,11 +594,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         set({ lastSyncTime: Date.now() });
         // Refresh local data to pull in merged records
         await get().refreshAllData();
+        get().showToast("Sync completed successfully!", "success");
       } else {
         console.warn('Sync warning:', res.error);
+        get().showToast(`Sync failed: ${res.error}`, "error");
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Sync failed:', e);
+      get().showToast(`Sync failed: ${e.message}`, "error");
     } finally {
       set({ syncLoading: false });
     }
