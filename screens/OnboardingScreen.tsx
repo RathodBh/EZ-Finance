@@ -19,7 +19,7 @@ import { AuthService } from "../services/auth";
 const { width } = Dimensions.get("window");
 
 export default function OnboardingScreen() {
-  const { login, loginOffline, authLoading, theme, tempGoogleSession, setTempGoogleSession } = useAppStore();
+  const { login, loginOffline, authLoading, theme, tempGoogleSession, setTempGoogleSession, showToast } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   const [step, setStep] = React.useState<'WELCOME' | 'OFFLINE_NAME' | 'CURRENCY_SELECT'>('WELCOME');
@@ -54,10 +54,7 @@ export default function OnboardingScreen() {
       setStep('CURRENCY_SELECT');
     } catch (e: any) {
       console.error("Google Sign-In Error:", e);
-      Alert.alert(
-        "Login Failed",
-        "Unable to authenticate with Google. Please verify your client ID and configuration, then try again.",
-      );
+      showToast("Unable to authenticate with Google. Please try again.", "error");
     } finally {
       setGoogleLoading(false);
     }
@@ -71,10 +68,7 @@ export default function OnboardingScreen() {
 
   const handleOfflineNameNext = () => {
     if (!offlineName.trim()) {
-      Alert.alert(
-        "Name Required",
-        "Please enter your name to personalize your profile.",
-      );
+      showToast("Please enter your name to personalize your profile.", "error");
       return;
     }
     setStep('CURRENCY_SELECT');
@@ -85,7 +79,7 @@ export default function OnboardingScreen() {
       await loginOffline(offlineName.trim(), currencyPref);
     } catch (e: any) {
       console.error("Offline Sign-In Error:", e);
-      Alert.alert("Error", "Unable to start offline mode. Please try again.");
+      showToast("Unable to start offline mode. Please try again.", "error");
     }
   };
 

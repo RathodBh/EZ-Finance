@@ -1,5 +1,6 @@
 import { Platform, Alert } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import { useAppStore } from '../store/appStore';
 
 // Set default notification handler for native platforms
 if (Platform.OS !== 'web') {
@@ -102,11 +103,11 @@ export const NotificationService = {
               body: 'This is a test notification from EZ-Finance!',
             });
           } else {
-            alert('Test Notification: EZ-Finance Reminder works! 📝');
+            useAppStore.getState().showToast('Test Notification: EZ-Finance Reminder works! 📝', 'success');
           }
         }
       } else {
-        alert('Test Notification: EZ-Finance Reminder works! 📝');
+        useAppStore.getState().showToast('Test Notification: EZ-Finance Reminder works! 📝', 'success');
       }
       return 'web_test_notification';
     }
@@ -114,7 +115,7 @@ export const NotificationService = {
     try {
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
-        Alert.alert('Permission Denied', 'Please grant notification permissions in settings to receive notifications.');
+        useAppStore.getState().showToast('Please grant notification permissions in settings to receive reminders.', 'error');
         return null;
       }
 

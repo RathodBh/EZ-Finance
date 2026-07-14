@@ -10,7 +10,7 @@ import { useRouter } from 'expo-router';
 
 export default function AddBudgetOverlay() {
   const router = useRouter();
-  const { categories, theme, refreshBudgets, currency } = useAppStore();
+  const { categories, theme, refreshBudgets, currency, showToast } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   // Forms states
@@ -21,12 +21,12 @@ export default function AddBudgetOverlay() {
   const handleSave = async () => {
     const numAmount = parseFloat(amount);
     if (isNaN(numAmount) || numAmount <= 0) {
-      Alert.alert('Validation Error', 'Please enter a valid positive amount.');
+      showToast('Please enter a valid positive amount.', 'error');
       return;
     }
 
     if (!categoryId) {
-      Alert.alert('Validation Error', 'Please select a category.');
+      showToast('Please select a category.', 'error');
       return;
     }
 
@@ -46,9 +46,10 @@ export default function AddBudgetOverlay() {
       });
 
       await refreshBudgets();
+      showToast('Budget cycle activated successfully.', 'success');
       router.back();
     } catch (e: any) {
-      Alert.alert('Error', `Failed to set budget: ${e.message}`);
+      showToast(`Failed to set budget: ${e.message}`, 'error');
     }
   };
 

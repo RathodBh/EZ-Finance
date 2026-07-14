@@ -39,7 +39,7 @@ const CURATED_COLORS = [
 
 export default function ManageCategoriesOverlay() {
   const router = useRouter();
-  const { categories, theme, refreshCategories } = useAppStore();
+  const { categories, theme, refreshCategories, showToast } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   // List filter: Expense vs Income
@@ -77,7 +77,7 @@ export default function ManageCategoriesOverlay() {
 
   const handleSave = async () => {
     if (!name.trim()) {
-      Alert.alert('Validation Error', 'Please enter a category name.');
+      showToast('Please enter a category name.', 'error');
       return;
     }
 
@@ -105,10 +105,11 @@ export default function ManageCategoriesOverlay() {
       }
 
       await refreshCategories();
+      showToast('Category saved successfully.', 'success');
       setShowModal(false);
       setName('');
     } catch (e: any) {
-      Alert.alert('Error', `Failed to save category: ${e.message}`);
+      showToast(`Failed to save category: ${e.message}`, 'error');
     }
   };
 
@@ -125,10 +126,11 @@ export default function ManageCategoriesOverlay() {
             try {
               await CategoryRepository.delete(id);
               await refreshCategories();
+              showToast('Category deleted successfully.', 'success');
               setShowModal(false);
               setEditingCategory(null);
             } catch (e: any) {
-              Alert.alert('Error', `Failed to delete category: ${e.message}`);
+              showToast(`Failed to delete category: ${e.message}`, 'error');
             }
           },
         },

@@ -11,7 +11,7 @@ import { formatCurrency as formatCurrencyUtil } from '../services/utils';
 
 export default function TransactionsScreen() {
   const router = useRouter();
-  const { transactions, accounts, categories, theme, refreshTransactions, refreshAccounts, currency, setShowTxModal } = useAppStore();
+  const { transactions, accounts, categories, theme, refreshTransactions, refreshAccounts, currency, setShowTxModal, showToast } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'INCOME' | 'EXPENSE' | 'TRANSFER'>('ALL');
   
@@ -65,8 +65,10 @@ export default function TransactionsScreen() {
         await TransactionRepository.delete(id);
         await refreshTransactions();
         await refreshAccounts(); // Refresh account balances as deletion recalculates balance
-      } catch (err) {
+        showToast('Transaction deleted successfully.', 'success');
+      } catch (err: any) {
         console.error('Delete transaction failed:', err);
+        showToast(`Failed to delete transaction: ${err.message}`, 'error');
       }
     };
 

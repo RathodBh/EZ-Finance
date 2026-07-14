@@ -11,7 +11,7 @@ import { formatCurrency, getCurrencySymbol } from '../../services/utils';
 
 export default function AddTransactionOverlay() {
   const router = useRouter();
-  const { accounts, categories, theme, refreshTransactions, refreshAccounts, currency, activeTxToEdit, setShowTxModal } = useAppStore();
+  const { accounts, categories, theme, refreshTransactions, refreshAccounts, currency, activeTxToEdit, setShowTxModal, showToast } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   // Forms states
@@ -20,8 +20,19 @@ export default function AddTransactionOverlay() {
 
   const defaultAccount = useMemo(() => accounts.find(a => a.isDefault) || accounts[0], [accounts]);
   const [accountId, setAccountId] = useState(activeTxToEdit?.accountId || defaultAccount?.id || '');
-  const [categoryId, setCategoryId] = useState(activeTxToEdit?.categoryId || categories[0]?.id || '');
+  const [categoryId, setCategoryId] = useState(activeTxToEdit?.categoryId || '');
   const [toAccountId, setToAccountId] = useState(activeTxToEdit?.toAccountId || '');
+
+  // Auto-initialize category matching the transaction type on load
+  const defaultCategory = useMemo(() => {
+    return categories.find(c => c.type === type) || categories[0];
+  }, [categories, type]);
+
+  React.useEffect(() => {
+    if (!activeTxToEdit && !categoryId && defaultCategory) {
+      setCategoryId(defaultCategory.id);
+    }
+  }, [defaultCategory, categoryId, activeTxToEdit]);
 
   React.useEffect(() => {
     if (defaultAccount && !accountId) {
@@ -60,22 +71,22 @@ export default function AddTransactionOverlay() {
   const handleSave = async () => {
     const numAmount = parseFloat(amount);
     if (isNaN(numAmount) || numAmount <= 0) {
-      Alert.alert('Validation Error', 'Please enter a valid positive amount.');
+      showToast('Please enter a valid positive amount.', 'error');
       return;
     }
 
     if (!accountId) {
-      Alert.alert('Validation Error', 'Please select an account.');
+      showToast('Please select an account.', 'error');
       return;
     }
 
     if (type !== 'TRANSFER' && !categoryId) {
-      Alert.alert('Validation Error', 'Please select a category.');
+      showToast('Please select a category.', 'error');
       return;
     }
 
     if (type === 'TRANSFER' && accountId === toAccountId) {
-      Alert.alert('Validation Error', 'Source and destination accounts must be different.');
+      showToast('Source and destination accounts must be different.', 'error');
       return;
     }
 
@@ -123,9 +134,10 @@ export default function AddTransactionOverlay() {
       setShowTxModal(false, null);
       await refreshTransactions();
       await refreshAccounts();
+      showToast(activeTxToEdit ? 'Transaction updated successfully.' : 'Transaction saved successfully.', 'success');
       router.back();
     } catch (e: any) {
-      Alert.alert('Save Failed', `Error saving transaction: ${e.message}`);
+      showToast(`Error saving transaction: ${e.message}`, 'error');
     }
   };
 

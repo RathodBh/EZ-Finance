@@ -10,7 +10,7 @@ import { useRouter } from 'expo-router';
 
 export default function AddGoalOverlay() {
   const router = useRouter();
-  const { theme, refreshGoals, currency } = useAppStore();
+  const { theme, refreshGoals, currency, showToast } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   // Forms states
@@ -23,13 +23,13 @@ export default function AddGoalOverlay() {
 
   const handleSave = async () => {
     if (!name.trim()) {
-      Alert.alert('Validation Error', 'Please enter a goal name.');
+      showToast('Please enter a goal name.', 'error');
       return;
     }
 
     const numTarget = parseFloat(target);
     if (isNaN(numTarget) || numTarget <= 0) {
-      Alert.alert('Validation Error', 'Please enter a valid target amount.');
+      showToast('Please enter a valid target amount.', 'error');
       return;
     }
 
@@ -47,9 +47,10 @@ export default function AddGoalOverlay() {
       });
 
       await refreshGoals();
+      showToast('Financial goal created successfully.', 'success');
       router.back();
     } catch (e: any) {
-      Alert.alert('Error', `Failed to create goal: ${e.message}`);
+      showToast(`Failed to create goal: ${e.message}`, 'error');
     }
   };
 

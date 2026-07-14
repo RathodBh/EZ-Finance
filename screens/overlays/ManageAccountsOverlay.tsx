@@ -11,7 +11,7 @@ import PremiumSwitch from '../../components/PremiumSwitch';
 
 export default function ManageAccountsOverlay() {
   const router = useRouter();
-  const { accounts, transactions, theme, refreshAccounts, refreshTransactions, currency } = useAppStore();
+  const { accounts, transactions, theme, refreshAccounts, refreshTransactions, currency, showToast } = useAppStore();
   const activeColors = ThemeColors[theme];
 
   // Modal Control
@@ -119,7 +119,7 @@ export default function ManageAccountsOverlay() {
 
   const handleSave = async () => {
     if (!name.trim()) {
-      Alert.alert('Validation Error', 'Please enter an account name.');
+      showToast('Please enter an account name.', 'error');
       return;
     }
 
@@ -162,9 +162,10 @@ export default function ManageAccountsOverlay() {
       }
 
       await refreshAccounts();
+      showToast('Account details saved successfully.', 'success');
       setShowModal(false);
     } catch (e: any) {
-      Alert.alert('Error', `Failed to save account: ${e.message}`);
+      showToast(`Failed to save account: ${e.message}`, 'error');
     }
   };
 
@@ -184,9 +185,10 @@ export default function ManageAccountsOverlay() {
         await AccountRepository.delete(id);
         await refreshAccounts();
         await refreshTransactions();
+        showToast('Account and associated transactions deleted successfully.', 'success');
         setShowModal(false);
       } catch (err: any) {
-        Alert.alert('Error', `Failed to delete account: ${err.message}`);
+        showToast(`Failed to delete account: ${err.message}`, 'error');
       }
     };
 
@@ -223,7 +225,7 @@ export default function ManageAccountsOverlay() {
         <Text style={[styles.title, { color: activeColors.text }]}>Accounts</Text>
         <View style={{ width: 48 }} />
       </View>
-
+      
       <ScrollView contentContainerStyle={styles.listContent}>
         {accounts.map((acc) => (
           <TouchableOpacity
@@ -265,8 +267,9 @@ export default function ManageAccountsOverlay() {
                     try {
                       await AccountRepository.setDefault(acc.id);
                       await refreshAccounts();
+                      showToast(`"${acc.name}" set as default account.`, 'success');
                     } catch (err: any) {
-                      Alert.alert('Error', `Failed to set default account: ${err.message}`);
+                      showToast(`Failed to set default account: ${err.message}`, 'error');
                     }
                   }}
                   style={{ margin: 0 }}
