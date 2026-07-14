@@ -32,6 +32,21 @@ const getSecureItem = async (key: string): Promise<string | null> => {
   }
 };
 
+const setSecureItem = async (key: string, value: string): Promise<void> => {
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(key, value);
+    }
+  } else {
+    try {
+      const SecureStore = require('expo-secure-store');
+      await SecureStore.setItemAsync(key, value);
+    } catch {
+      // Ignore
+    }
+  }
+};
+
 // Supported sync tables list
 const SYNCABLE_TABLES = [
   { name: 'accounts', table: schema.accounts },
@@ -110,15 +125,19 @@ export const SyncService = {
         const fileName = `${name}_${deviceId}.json`;
         const payloadStr = JSON.stringify(allLocalRecords);
 
-        if (mockMode) {
-          await this.mockUpload(fileName, payloadStr);
+        if (dirtyRecords.length > 0) {
+          if (mockMode) {
+            await this.mockUpload(fileName, payloadStr);
+          } else {
+            await this.driveUpload(accessToken, fileName, payloadStr);
+          }
+          recordsUploaded += dirtyRecords.length;
         } else {
-          await this.driveUpload(accessToken, fileName, payloadStr);
+          console.log(`Skipping upload for ${name} - no local changes`);
         }
-        recordsUploaded += dirtyRecords.length;
 
         // 4. Download other devices' state files
-        let allRemoteFiles: { id: string; name: string }[] = [];
+        let allRemoteFiles: { id: string; name: string; modifiedTime?: string }[] = [];
         if (mockMode) {
           const files = await this.mockListFiles(name);
           allRemoteFiles = files.map(f => ({ id: f, name: f }));
@@ -130,6 +149,15 @@ export const SyncService = {
         for (const file of allRemoteFiles) {
           // Skip downloading our own device file
           if (file.name.includes(deviceId)) continue;
+
+          // Check if file has been modified since last sync
+          if (file.modifiedTime) {
+            const lastSyncedTime = await getSecureItem(`last_sync_${file.name}`);
+            if (lastSyncedTime === file.modifiedTime) {
+              console.log(`Skipping download for remote file ${file.name} - already up to date`);
+              continue;
+            }
+          }
 
           let fileContentStr = '';
           if (mockMode) {
@@ -143,6 +171,10 @@ export const SyncService = {
               const records = JSON.parse(fileContentStr);
               if (Array.isArray(records)) {
                 remoteRecords.push(...records);
+                // Save modifiedTime to avoid re-downloading next time
+                if (file.modifiedTime) {
+                  await setSecureItem(`last_sync_${file.name}`, file.modifiedTime);
+                }
               }
             } catch (parseErr) {
               console.warn(`Failed to parse remote file: ${file.name}`, parseErr);
@@ -158,21 +190,23 @@ export const SyncService = {
         }
 
         // 6. Mark all local records as synced since we pushed our full state
-        if (Platform.OS === 'web') {
-          const updatedLocal = allLocalRecords.map((r: any) => ({
-            ...r,
-            isSynced: true,
-            syncStatus: 'SYNCED',
-          }));
-          localStorage.setItem(`ff_${name}`, JSON.stringify(updatedLocal));
-        } else {
-          await db
-            .update(table)
-            .set({
+        if (dirtyRecords.length > 0) {
+          if (Platform.OS === 'web') {
+            const updatedLocal = allLocalRecords.map((r: any) => ({
+              ...r,
               isSynced: true,
               syncStatus: 'SYNCED',
-            } as any)
-            .where(eq((table as any).isSynced, false));
+            }));
+            localStorage.setItem(`ff_${name}`, JSON.stringify(updatedLocal));
+          } else {
+            await db
+              .update(table)
+              .set({
+                isSynced: true,
+                syncStatus: 'SYNCED',
+              } as any)
+              .where(eq((table as any).isSynced, false));
+          }
         }
       }
 
@@ -323,42 +357,41 @@ export const SyncService = {
       return updateCount;
     }
 
-    for (const [id, remoteRecord] of latestRemoteMap.entries()) {
-      // Find local copy
-      const localRecord = await db
-        .select()
-        .from(table)
-        .where(eq(table.id, id))
-        .then((res: any) => res[0]);
+    const localRecords = await db.select().from(table);
+    const localMap = new Map<string, any>(localRecords.map((r: any) => [r.id, r]));
 
-      if (!localRecord) {
-        // Insert missing record
-        await db.insert(table).values({
-          ...remoteRecord,
-          isSynced: true,
-          syncStatus: 'SYNCED',
-        });
-        updateCount++;
-      } else {
-        // Conflict resolution: Remote is newer
-        const remoteIsNewer = 
-          remoteRecord.version > localRecord.version || 
-          (remoteRecord.version === localRecord.version && remoteRecord.updatedAt > localRecord.updatedAt);
+    await db.transaction(async (tx: any) => {
+      for (const [id, remoteRecord] of latestRemoteMap.entries()) {
+        const localRecord = localMap.get(id);
 
-        if (remoteIsNewer) {
-          // If remote is soft-deleted, perform soft-delete locally
-          await db
-            .update(table)
-            .set({
-              ...remoteRecord,
-              isSynced: true,
-              syncStatus: 'SYNCED',
-            })
-            .where(eq(table.id, id));
+        if (!localRecord) {
+          // Insert missing record
+          await tx.insert(table).values({
+            ...remoteRecord,
+            isSynced: true,
+            syncStatus: 'SYNCED',
+          });
           updateCount++;
+        } else {
+          // Conflict resolution: Remote is newer
+          const remoteIsNewer = 
+            remoteRecord.version > localRecord.version || 
+            (remoteRecord.version === localRecord.version && remoteRecord.updatedAt > localRecord.updatedAt);
+
+          if (remoteIsNewer) {
+            await tx
+              .update(table)
+              .set({
+                ...remoteRecord,
+                isSynced: true,
+                syncStatus: 'SYNCED',
+              })
+              .where(eq(table.id, id));
+            updateCount++;
+          }
         }
       }
-    }
+    });
 
     return updateCount;
   },
@@ -429,10 +462,10 @@ export const SyncService = {
     return null;
   },
 
-  async driveListFiles(accessToken: string, prefix: string): Promise<{ id: string; name: string }[]> {
+  async driveListFiles(accessToken: string, prefix: string): Promise<{ id: string; name: string; modifiedTime: string }[]> {
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
       `name contains '${prefix}_' and 'appDataFolder' in parents and trashed = false`
-    )}&spaces=appDataFolder&fields=files(id,name)`;
+    )}&spaces=appDataFolder&fields=files(id,name,modifiedTime)`;
 
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -443,7 +476,7 @@ export const SyncService = {
     }
 
     const json = await response.json();
-    return (json.files || []).map((f: any) => ({ id: f.id, name: f.name }));
+    return (json.files || []).map((f: any) => ({ id: f.id, name: f.name, modifiedTime: f.modifiedTime }));
   },
 
   async driveDownload(accessToken: string, fileId: string): Promise<string> {

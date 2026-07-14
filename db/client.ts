@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/expo-sqlite';
 import * as schema from './schema';
 
 const DB_NAME = 'ezfinance.db';
+const DB_KEY_STORE_KEY = 'ezfinance_db_encryption_key';
 
 export let expoDb: any = null;
 export let db: any = null;
@@ -11,10 +12,24 @@ export let db: any = null;
 if (Platform.OS !== 'web') {
   try {
     const { openDatabaseSync } = require('expo-sqlite');
+    const SecureStore = require('expo-secure-store');
+
+    // Get or create database encryption key synchronously from SecureStore
+    let encryptionKey = SecureStore.getItem(DB_KEY_STORE_KEY);
+    if (!encryptionKey) {
+      // Generate a new random password key
+      encryptionKey = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      SecureStore.setItem(DB_KEY_STORE_KEY, encryptionKey);
+    }
+
     expoDb = openDatabaseSync(DB_NAME);
+
+    // Apply the key to SQLCipher immediately after opening
+    expoDb.execSync(`PRAGMA key = '${encryptionKey}';`);
+
     db = drizzle(expoDb, { schema });
   } catch (err) {
-    console.error('Failed to initialize native SQLite client:', err);
+    console.error('Failed to initialize native SQLite client with encryption:', err);
   }
 }
 
