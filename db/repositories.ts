@@ -882,3 +882,413 @@ export const BillRepository = {
       .returning();
   },
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SMART SMS TRANSACTION DETECTION ENGINE (STDE) REPOSITORY
+// ─────────────────────────────────────────────────────────────────────────────
+export const SmsRepository = {
+  // --- TEMPORARY TRANSACTIONS ---
+  async getTempTransactions() {
+    if (Platform.OS === 'web') {
+      return getWebList('temp_transactions');
+    }
+    return db.query.tempTransactions.findMany();
+  },
+
+  async getPendingTransactions() {
+    if (Platform.OS === 'web') {
+      return getWebList('temp_transactions').filter(t => t.status === 'PENDING');
+    }
+    return db.query.tempTransactions.findMany({
+      where: eq(schema.tempTransactions.status, 'PENDING')
+    });
+  },
+
+  async saveTempTransaction(data: any) {
+    const now = Date.now();
+    const payload = {
+      ...data,
+      createdAt: data.createdAt || now,
+      updatedAt: now
+    };
+
+    if (Platform.OS === 'web') {
+      const list = getWebList('temp_transactions');
+      const idx = list.findIndex((t) => t.id === payload.id);
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], ...payload };
+      } else {
+        list.push(payload);
+      }
+      saveWebList('temp_transactions', list);
+      return;
+    }
+
+    const existing = await db.query.tempTransactions.findFirst({
+      where: eq(schema.tempTransactions.id, payload.id)
+    });
+
+    if (existing) {
+      await db.update(schema.tempTransactions)
+        .set(payload)
+        .where(eq(schema.tempTransactions.id, payload.id));
+    } else {
+      await db.insert(schema.tempTransactions).values(payload);
+    }
+  },
+
+  async getAutoSavedToday() {
+    const startOfToday = new Date().setHours(0, 0, 0, 0);
+    if (Platform.OS === 'web') {
+      return getWebList('temp_transactions').filter(
+        t => t.status === 'AUTO_SAVED' && t.transactionDate >= startOfToday
+      ).length;
+    }
+
+    const results = await db.query.tempTransactions.findMany({
+      where: and(
+        eq(schema.tempTransactions.status, 'AUTO_SAVED'),
+        sql`${schema.tempTransactions.transactionDate} >= ${startOfToday}`
+      )
+    });
+    return results.length;
+  },
+
+  async getTodaySummary() {
+    const startOfToday = new Date().setHours(0, 0, 0, 0);
+    if (Platform.OS === 'web') {
+      const todayTx = getWebList('temp_transactions').filter(t => t.transactionDate >= startOfToday);
+      return {
+        total: todayTx.length,
+        autoSaved: todayTx.filter(t => t.status === 'AUTO_SAVED').length,
+        pendingReview: todayTx.filter(t => t.status === 'PENDING').length,
+      };
+    }
+
+    const todayTx = await db.query.tempTransactions.findMany({
+      where: sql`${schema.tempTransactions.transactionDate} >= ${startOfToday}`
+    });
+
+    return {
+      total: todayTx.length,
+      autoSaved: todayTx.filter((t: any) => t.status === 'AUTO_SAVED').length,
+      pendingReview: todayTx.filter((t: any) => t.status === 'PENDING').length,
+    };
+  },
+
+  async markApproved(id: string) {
+    if (Platform.OS === 'web') {
+      const list = getWebList('temp_transactions');
+      const idx = list.findIndex(t => t.id === id);
+      if (idx !== -1) {
+        list[idx].status = 'APPROVED';
+        list[idx].processed = true;
+        list[idx].updatedAt = Date.now();
+        saveWebList('temp_transactions', list);
+      }
+      return;
+    }
+    await db.update(schema.tempTransactions)
+      .set({ status: 'APPROVED', processed: true, updatedAt: Date.now() })
+      .where(eq(schema.tempTransactions.id, id));
+  },
+
+  async markSkipped(id: string) {
+    if (Platform.OS === 'web') {
+      const list = getWebList('temp_transactions');
+      const idx = list.findIndex(t => t.id === id);
+      if (idx !== -1) {
+        list[idx].status = 'SKIPPED';
+        list[idx].processed = true;
+        list[idx].updatedAt = Date.now();
+        saveWebList('temp_transactions', list);
+      }
+      return;
+    }
+    await db.update(schema.tempTransactions)
+      .set({ status: 'SKIPPED', processed: true, updatedAt: Date.now() })
+      .where(eq(schema.tempTransactions.id, id));
+  },
+
+  async markAutoSaved(id: string) {
+    if (Platform.OS === 'web') {
+      const list = getWebList('temp_transactions');
+      const idx = list.findIndex(t => t.id === id);
+      if (idx !== -1) {
+        list[idx].status = 'AUTO_SAVED';
+        list[idx].processed = true;
+        list[idx].updatedAt = Date.now();
+        saveWebList('temp_transactions', list);
+      }
+      return;
+    }
+    await db.update(schema.tempTransactions)
+      .set({ status: 'AUTO_SAVED', processed: true, updatedAt: Date.now() })
+      .where(eq(schema.tempTransactions.id, id));
+  },
+
+  async hashExists(hash: string) {
+    if (Platform.OS === 'web') {
+      return getWebList('temp_transactions').some(t => t.smsHash === hash);
+    }
+    const match = await db.query.tempTransactions.findFirst({
+      where: eq(schema.tempTransactions.smsHash, hash)
+    });
+    return !!match;
+  },
+
+  // --- RULES ---
+  async getRules() {
+    if (Platform.OS === 'web') {
+      return getWebList('sms_rules');
+    }
+    return db.query.smsRules.findMany();
+  },
+
+  async saveRule(rule: any) {
+    const now = Date.now();
+    const payload = {
+      ...rule,
+      createdAt: rule.createdAt || now,
+      updatedAt: now
+    };
+
+    if (Platform.OS === 'web') {
+      const list = getWebList('sms_rules');
+      const idx = list.findIndex(r => r.id === payload.id);
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], ...payload };
+      } else {
+        list.push(payload);
+      }
+      saveWebList('sms_rules', list);
+      return;
+    }
+
+    const existing = await db.query.smsRules.findFirst({
+      where: eq(schema.smsRules.id, payload.id)
+    });
+
+    if (existing) {
+      await db.update(schema.smsRules)
+        .set(payload)
+        .where(eq(schema.smsRules.id, payload.id));
+    } else {
+      await db.insert(schema.smsRules).values(payload);
+    }
+  },
+
+  async deleteRule(id: string) {
+    if (Platform.OS === 'web') {
+      const list = getWebList('sms_rules');
+      const updated = list.filter(r => r.id !== id);
+      saveWebList('sms_rules', updated);
+      return;
+    }
+    await db.delete(schema.smsRules).where(eq(schema.smsRules.id, id));
+  },
+
+  async findRuleByMerchant(merchant: string) {
+    const term = merchant.trim().toLowerCase();
+    if (Platform.OS === 'web') {
+      return getWebList('sms_rules').find(
+        r => r.ruleType === 'MERCHANT' && r.merchantPattern?.toLowerCase() === term
+      ) || null;
+    }
+    return db.query.smsRules.findFirst({
+      where: and(
+        eq(schema.smsRules.ruleType, 'MERCHANT'),
+        sql`LOWER(${schema.smsRules.merchantPattern}) = ${term}`
+      )
+    }) || null;
+  },
+
+  async findRuleByUpi(upiId: string) {
+    const term = upiId.trim().toLowerCase();
+    if (Platform.OS === 'web') {
+      return getWebList('sms_rules').find(
+        r => r.ruleType === 'UPI' && r.upiId?.toLowerCase() === term
+      ) || null;
+    }
+    return db.query.smsRules.findFirst({
+      where: and(
+        eq(schema.smsRules.ruleType, 'UPI'),
+        sql`LOWER(${schema.smsRules.upiId}) = ${term}`
+      )
+    }) || null;
+  },
+
+  async findRuleByAccount(bankName: string, last4: string) {
+    const bank = bankName.trim().toLowerCase();
+    const num = last4.trim();
+    if (Platform.OS === 'web') {
+      return getWebList('sms_rules').find(
+        r => r.ruleType === 'ACCOUNT' && 
+             r.bankName?.toLowerCase() === bank && 
+             r.accountLast4 === num
+      ) || null;
+    }
+    return db.query.smsRules.findFirst({
+      where: and(
+        eq(schema.smsRules.ruleType, 'ACCOUNT'),
+        sql`LOWER(${schema.smsRules.bankName}) = ${bank}`,
+        eq(schema.smsRules.accountLast4, num)
+      )
+    }) || null;
+  },
+
+  async updateRuleStats(ruleId: string, decision: 'accepted' | 'edited' | 'rejected' | 'skipped' | 'auto_saved') {
+    if (Platform.OS === 'web') {
+      const list = getWebList('sms_rules');
+      const idx = list.findIndex(r => r.id === ruleId);
+      if (idx !== -1) {
+        const rule = list[idx];
+        if (decision === 'accepted') rule.acceptedCount++;
+        else if (decision === 'edited') rule.editedCount++;
+        else if (decision === 'rejected') rule.rejectedCount++;
+        else if (decision === 'skipped') rule.skippedCount++;
+        else if (decision === 'auto_saved') rule.autoSavedCount++;
+        rule.lastUsed = Date.now();
+        saveWebList('sms_rules', list);
+        await this.recalculateConfidence(ruleId);
+      }
+      return;
+    }
+
+    const existing = await db.query.smsRules.findFirst({ where: eq(schema.smsRules.id, ruleId) });
+    if (!existing) return;
+
+    const updates: any = { lastUsed: Date.now() };
+    if (decision === 'accepted') updates.acceptedCount = existing.acceptedCount + 1;
+    else if (decision === 'edited') updates.editedCount = existing.editedCount + 1;
+    else if (decision === 'rejected') updates.rejectedCount = existing.rejectedCount + 1;
+    else if (decision === 'skipped') updates.skippedCount = existing.skippedCount + 1;
+    else if (decision === 'auto_saved') updates.autoSavedCount = existing.autoSavedCount + 1;
+
+    await db.update(schema.smsRules).set(updates).where(eq(schema.smsRules.id, ruleId));
+    await this.recalculateConfidence(ruleId);
+  },
+
+  async toggleRuleEnabled(ruleId: string, isEnabled: boolean) {
+    if (Platform.OS === 'web') {
+      const list = getWebList('sms_rules');
+      const idx = list.findIndex(r => r.id === ruleId);
+      if (idx !== -1) {
+        list[idx].isEnabled = isEnabled;
+        saveWebList('sms_rules', list);
+      }
+      return;
+    }
+    await db.update(schema.smsRules)
+      .set({ isEnabled, updatedAt: Date.now() })
+      .where(eq(schema.smsRules.id, ruleId));
+  },
+
+  async recalculateConfidence(ruleId: string) {
+    if (Platform.OS === 'web') {
+      const list = getWebList('sms_rules');
+      const idx = list.findIndex(r => r.id === ruleId);
+      if (idx !== -1) {
+        const r = list[idx];
+        const totalObservations = r.acceptedCount + r.autoSavedCount + r.editedCount + r.rejectedCount;
+        if (totalObservations < 2) {
+          r.confidence = 0; // Not enough data to be confident yet
+        } else {
+          // formula: (accepted + autoSaved) * 100 / (accepted + autoSaved + edited * 2 + rejected * 3)
+          const positive = r.acceptedCount + r.autoSavedCount;
+          const penalty = (r.editedCount * 2) + (r.rejectedCount * 3);
+          const rawConf = (positive * 100) / (positive + penalty);
+          r.confidence = Math.max(0, Math.min(100, Math.round(rawConf)));
+        }
+        saveWebList('sms_rules', list);
+      }
+      return;
+    }
+
+    const r = await db.query.smsRules.findFirst({ where: eq(schema.smsRules.id, ruleId) });
+    if (!r) return;
+
+    const totalObservations = r.acceptedCount + r.autoSavedCount + r.editedCount + r.rejectedCount;
+    let confidence = 0;
+    if (totalObservations >= 2) {
+      const positive = r.acceptedCount + r.autoSavedCount;
+      const penalty = (r.editedCount * 2) + (r.rejectedCount * 3);
+      const rawConf = (positive * 100) / (positive + penalty);
+      confidence = Math.max(0, Math.min(100, Math.round(rawConf)));
+    }
+
+    await db.update(schema.smsRules)
+      .set({ confidence, updatedAt: Date.now() })
+      .where(eq(schema.smsRules.id, ruleId));
+  },
+
+  // --- SETTINGS ---
+  async getSettings() {
+    if (Platform.OS === 'web') {
+      const list = getWebList('sms_settings');
+      if (list.length === 0) {
+        const defaultSettings = {
+          id: 'default_sms_settings',
+          autoSaveThreshold: 98,
+          autoSuggestThreshold: 80,
+          reviewThreshold: 60,
+          isEnabled: true,
+          lastProcessedSmsId: null,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        saveWebList('sms_settings', [defaultSettings]);
+        return defaultSettings;
+      }
+      return list[0];
+    }
+
+    const settings = await db.query.smsSettings.findFirst();
+    if (!settings) {
+      const defaultSettings = {
+        id: 'default_sms_settings',
+        autoSaveThreshold: 98,
+        autoSuggestThreshold: 80,
+        reviewThreshold: 60,
+        isEnabled: true,
+        lastProcessedSmsId: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      await db.insert(schema.smsSettings).values(defaultSettings);
+      return defaultSettings;
+    }
+    return settings;
+  },
+
+  async updateSettings(data: any) {
+    const current = await this.getSettings();
+    const payload = {
+      ...current,
+      ...data,
+      updatedAt: Date.now()
+    };
+
+    if (Platform.OS === 'web') {
+      saveWebList('sms_settings', [payload]);
+      return;
+    }
+
+    await db.update(schema.smsSettings)
+      .set(payload)
+      .where(eq(schema.smsSettings.id, current.id));
+  },
+
+  async resetAllRulesAndData() {
+    if (Platform.OS === 'web') {
+      localStorage.setItem('sms_rules', JSON.stringify([]));
+      localStorage.setItem('temp_transactions', JSON.stringify([]));
+      localStorage.setItem('sms_settings', JSON.stringify([]));
+      return;
+    }
+    await db.delete(schema.tempTransactions);
+    await db.delete(schema.smsRules);
+    await db.delete(schema.smsSettings);
+  },
+};
+

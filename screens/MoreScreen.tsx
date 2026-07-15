@@ -67,12 +67,18 @@ export default function MoreScreen() {
     notificationsEnabled,
     toggleNotifications,
     showToast,
+    pendingSmsTransactions,
+    refreshSmsData,
   } = useAppStore();
 
   const activeColors = ThemeColors[theme];
 
   const [showCurrencyModal, setShowCurrencyModal] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
+
+  React.useEffect(() => {
+    refreshSmsData();
+  }, []);
 
   const filteredCurrencies = React.useMemo(() => {
     return CURRENCIES.filter(
@@ -591,6 +597,106 @@ export default function MoreScreen() {
           onPress={async () => {
             await NotificationService.sendTestNotification();
           }}
+          style={[
+            styles.listItem,
+            {
+              backgroundColor: activeColors.surface,
+              borderColor: activeColors.border,
+            },
+          ]}
+          titleStyle={{ color: activeColors.text }}
+          descriptionStyle={{ color: activeColors.textSecondary }}
+        />
+      </List.Section>
+
+      {/* Smart SMS Assistant */}
+      <List.Section
+        title="Smart SMS Assistant"
+        titleStyle={{ color: activeColors.primary, fontWeight: "bold" }}
+      >
+        <List.Item
+          title="SMS Review Queue"
+          description={
+            pendingSmsTransactions.length > 0
+              ? `${pendingSmsTransactions.length} transaction(s) pending review`
+              : "All caught up"
+          }
+          left={(props) => (
+            <List.Icon
+              {...props}
+              icon="message-text-clock-outline"
+              color={activeColors.text}
+            />
+          )}
+          onPress={() => router.push("/sms-transactions")}
+          right={(props) => (
+            <List.Icon
+              {...props}
+              icon="chevron-right"
+              color={activeColors.textSecondary}
+            />
+          )}
+          style={[
+            styles.listItem,
+            {
+              backgroundColor: activeColors.surface,
+              borderColor: activeColors.border,
+            },
+          ]}
+          titleStyle={{ color: activeColors.text }}
+          descriptionStyle={{
+            color: pendingSmsTransactions.length > 0 ? activeColors.primary : activeColors.textSecondary,
+            fontWeight: pendingSmsTransactions.length > 0 ? "bold" : "normal",
+          }}
+        />
+
+        <List.Item
+          title="Learned Rules"
+          description="Manage automated mappings & confidence scores"
+          left={(props) => (
+            <List.Icon
+              {...props}
+              icon="brain"
+              color={activeColors.text}
+            />
+          )}
+          onPress={() => router.push("/sms-rules")}
+          right={(props) => (
+            <List.Icon
+              {...props}
+              icon="chevron-right"
+              color={activeColors.textSecondary}
+            />
+          )}
+          style={[
+            styles.listItem,
+            {
+              backgroundColor: activeColors.surface,
+              borderColor: activeColors.border,
+            },
+          ]}
+          titleStyle={{ color: activeColors.text }}
+          descriptionStyle={{ color: activeColors.textSecondary }}
+        />
+
+        <List.Item
+          title="Detection Settings"
+          description="Configure rule confidence thresholds"
+          left={(props) => (
+            <List.Icon
+              {...props}
+              icon="cog-outline"
+              color={activeColors.text}
+            />
+          )}
+          onPress={() => router.push("/sms-settings")}
+          right={(props) => (
+            <List.Icon
+              {...props}
+              icon="chevron-right"
+              color={activeColors.textSecondary}
+            />
+          )}
           style={[
             styles.listItem,
             {

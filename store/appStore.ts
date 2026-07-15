@@ -8,10 +8,13 @@ import {
   TransactionRepository, 
   BudgetRepository, 
   GoalRepository,
-  BillRepository 
+  BillRepository,
+  SmsRepository
 } from '../db/repositories';
 import { initDb } from '../db/client';
 import { SyncService } from '../services/sync';
+import { smsServiceInstance } from '../services/sms/SmsService';
+
 
 export type AppTab = 'dashboard' | 'transactions' | 'reports' | 'budgets' | 'more';
 // Navigation tabs type
@@ -90,6 +93,21 @@ interface AppState {
   };
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   hideToast: () => void;
+
+  // STDE State & Actions
+  smsPermissionGranted: boolean;
+  pendingSmsTransactions: any[];
+  smsDailySummary: { total: number; autoSaved: number; pendingReview: number } | null;
+  smsProcessing: boolean;
+  smsRules: any[];
+  smsSettings: any | null;
+  requestSmsPermission: () => Promise<boolean>;
+  processSmsInbox: (mockSmsList?: any[]) => Promise<void>;
+  approveSmsTx: (id: string, categoryId: string, accountId: string) => Promise<void>;
+  skipSmsTx: (id: string) => Promise<void>;
+  deleteSmsRule: (id: string) => Promise<void>;
+  updateSmsSettings: (settings: any) => Promise<void>;
+  refreshSmsData: () => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -117,6 +135,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   syncLoading: false,
   lastSyncTime: null,
   autoSyncEnabled: false,
+  smsPermissionGranted: false,
+  pendingSmsTransactions: [],
+  smsDailySummary: null,
+  smsProcessing: false,
+  smsRules: [],
+  smsSettings: null,
 
   toast: {
     visible: false,
@@ -609,6 +633,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().refreshBudgets(),
       get().refreshGoals(),
       get().refreshBills(),
+      get().refreshSmsData(),
     ]);
   },
 
@@ -696,6 +721,141 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().showToast(`Sync failed: ${e.message}`, "error");
     } finally {
       set({ syncLoading: false });
+    }
+  },
+
+  requestSmsPermission: async () => {
+    // Platform-specific SMS permission request.
+    // For simplicity & offline-first cross-platform demo support, we set it to true.
+    set({ smsPermissionGranted: true });
+    return true;
+  },
+
+  processSmsInbox: async (mockSmsList) => {
+    if (get().smsProcessing) return;
+    set({ smsProcessing: true });
+    try {
+      const listToProcess = mockSmsList || smsServiceInstance.getMockSmsList();
+      const result = await smsServiceInstance.processSmsInbox(listToProcess);
+      
+      await get().refreshSmsData();
+      await get().refreshTransactions();
+      await get().refreshAccounts();
+
+      if (result.processed > 0) {
+        get().showToast(
+          `Processed ${result.processed} new SMS. Auto-saved: ${result.autoSaved}.`,
+          'success'
+        );
+      } else if (result.duplicates > 0) {
+        get().showToast(`No new messages. ${result.duplicates} duplicates ignored.`, 'info');
+      } else {
+        get().showToast('No transaction SMS detected.', 'info');
+      }
+    } catch (e: any) {
+      console.error('Failed to process SMS inbox:', e);
+      get().showToast(`Failed to parse SMS: ${e.message}`, 'error');
+    } finally {
+      set({ smsProcessing: false });
+    }
+  },
+
+  approveSmsTx: async (id, categoryId, accountId) => {
+    try {
+      const pendingList = get().pendingSmsTransactions;
+      const tempTx = pendingList.find(t => t.id === id);
+      if (!tempTx) throw new Error('Transaction not found');
+
+      // Promote to real transaction
+      await smsServiceInstance.promoteToRealTransaction(tempTx, categoryId, accountId);
+
+      // Mark approved in repository
+      await SmsRepository.markApproved(id);
+
+      // Learn decision & update rules
+      const ruleId = tempTx.matchedRuleId;
+      if (ruleId) {
+        await SmsRepository.updateRuleStats(
+          ruleId, 
+          tempTx.matchedCategoryId === categoryId && tempTx.matchedAccountId === accountId ? 'accepted' : 'edited'
+        );
+      } else {
+        // Create new rules if not exists
+        const RuleEngineModule = require('../services/sms/RuleEngine').RuleEngine;
+        const ruleEngine = new RuleEngineModule();
+        await ruleEngine.learnFromDecision(tempTx, 'accepted', categoryId, accountId);
+      }
+
+      get().showToast('Transaction approved and saved!', 'success');
+      
+      // Refresh all state
+      await get().refreshSmsData();
+      await get().refreshTransactions();
+      await get().refreshAccounts();
+    } catch (e: any) {
+      console.error('Failed to approve transaction:', e);
+      get().showToast(`Error: ${e.message}`, 'error');
+    }
+  },
+
+  skipSmsTx: async (id) => {
+    try {
+      const pendingList = get().pendingSmsTransactions;
+      const tempTx = pendingList.find(t => t.id === id);
+      if (!tempTx) throw new Error('Transaction not found');
+
+      await SmsRepository.markSkipped(id);
+
+      // Update statistics
+      if (tempTx.matchedRuleId) {
+        await SmsRepository.updateRuleStats(tempTx.matchedRuleId, 'skipped');
+      }
+
+      get().showToast('Transaction skipped.', 'info');
+      await get().refreshSmsData();
+    } catch (e: any) {
+      console.error('Failed to skip transaction:', e);
+      get().showToast(`Error: ${e.message}`, 'error');
+    }
+  },
+
+  deleteSmsRule: async (id) => {
+    try {
+      await SmsRepository.deleteRule(id);
+      get().showToast('Rule deleted successfully.', 'success');
+      await get().refreshSmsData();
+    } catch (e: any) {
+      console.error('Failed to delete rule:', e);
+      get().showToast(`Error: ${e.message}`, 'error');
+    }
+  },
+
+  updateSmsSettings: async (settings) => {
+    try {
+      await SmsRepository.updateSettings(settings);
+      get().showToast('SMS settings updated.', 'success');
+      await get().refreshSmsData();
+    } catch (e: any) {
+      console.error('Failed to update SMS settings:', e);
+      get().showToast(`Error: ${e.message}`, 'error');
+    }
+  },
+
+  refreshSmsData: async () => {
+    try {
+      const pending = await SmsRepository.getPendingTransactions();
+      const rules = await SmsRepository.getRules();
+      const settings = await SmsRepository.getSettings();
+      const summary = await SmsRepository.getTodaySummary();
+
+      set({
+        pendingSmsTransactions: pending,
+        smsRules: rules,
+        smsSettings: settings,
+        smsDailySummary: summary,
+      });
+    } catch (e) {
+      console.error('Failed to refresh SMS data:', e);
     }
   },
 }));

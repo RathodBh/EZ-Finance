@@ -409,10 +409,80 @@ export async function initDb() {
           );
         `);
 
+        // 17. Create temp_transactions (STDE)
+        expoDb.execSync(`
+          CREATE TABLE IF NOT EXISTS \`temp_transactions\` (
+            \`id\` text PRIMARY KEY NOT NULL,
+            \`sms_id\` text,
+            \`sms_hash\` text UNIQUE NOT NULL,
+            \`sms_body\` text NOT NULL,
+            \`bank_name\` text,
+            \`account_last4\` text,
+            \`merchant\` text,
+            \`merchant_raw\` text,
+            \`upi_id\` text,
+            \`amount\` real NOT NULL,
+            \`transaction_type\` text NOT NULL,
+            \`payment_mode\` text,
+            \`transaction_date\` integer NOT NULL,
+            \`status\` text DEFAULT 'PENDING' NOT NULL,
+            \`confidence\` real DEFAULT 0 NOT NULL,
+            \`matched_account_id\` text,
+            \`matched_category_id\` text,
+            \`matched_rule_id\` text,
+            \`processed\` integer DEFAULT 0 NOT NULL,
+            \`created_at\` integer NOT NULL,
+            \`updated_at\` integer NOT NULL
+          );
+        `);
+
+        // 18. Create sms_rules (STDE)
+        expoDb.execSync(`
+          CREATE TABLE IF NOT EXISTS \`sms_rules\` (
+            \`id\` text PRIMARY KEY NOT NULL,
+            \`rule_type\` text NOT NULL,
+            \`merchant_pattern\` text,
+            \`upi_id\` text,
+            \`bank_name\` text,
+            \`account_last4\` text,
+            \`regex_pattern\` text,
+            \`category_id\` text,
+            \`preferred_account_id\` text,
+            \`accepted_count\` integer DEFAULT 0 NOT NULL,
+            \`edited_count\` integer DEFAULT 0 NOT NULL,
+            \`rejected_count\` integer DEFAULT 0 NOT NULL,
+            \`skipped_count\` integer DEFAULT 0 NOT NULL,
+            \`auto_saved_count\` integer DEFAULT 0 NOT NULL,
+            \`confidence\` real DEFAULT 0 NOT NULL,
+            \`last_used\` integer,
+            \`is_enabled\` integer DEFAULT 1 NOT NULL,
+            \`created_at\` integer NOT NULL,
+            \`updated_at\` integer NOT NULL
+          );
+        `);
+
+        // 19. Create sms_settings (STDE)
+        expoDb.execSync(`
+          CREATE TABLE IF NOT EXISTS \`sms_settings\` (
+            \`id\` text PRIMARY KEY NOT NULL,
+            \`auto_save_threshold\` real DEFAULT 98 NOT NULL,
+            \`auto_suggest_threshold\` real DEFAULT 80 NOT NULL,
+            \`review_threshold\` real DEFAULT 60 NOT NULL,
+            \`is_enabled\` integer DEFAULT 1 NOT NULL,
+            \`last_processed_sms_id\` text,
+            \`created_at\` integer NOT NULL,
+            \`updated_at\` integer NOT NULL
+          );
+        `);
+
         // Indexes for performance (Phase 7)
         expoDb.execSync(`CREATE INDEX IF NOT EXISTS \`idx_transactions_date\` ON \`transactions\` (\`date\`);`);
         expoDb.execSync(`CREATE INDEX IF NOT EXISTS \`idx_transactions_account\` ON \`transactions\` (\`account_id\`);`);
         expoDb.execSync(`CREATE INDEX IF NOT EXISTS \`idx_transactions_category\` ON \`transactions\` (\`category_id\`);`);
+        
+        // STDE Indexes
+        expoDb.execSync(`CREATE INDEX IF NOT EXISTS \`idx_temp_transactions_date\` ON \`temp_transactions\` (\`transaction_date\`);`);
+        expoDb.execSync(`CREATE INDEX IF NOT EXISTS \`idx_temp_transactions_status\` ON \`temp_transactions\` (\`status\`);`);
 
         // Insert Starter Seed Data for Sandbox Demo
         const devId = 'initial_device_seed';
@@ -457,6 +527,75 @@ export async function initDb() {
         expoDb.execSync(`ALTER TABLE \`users\` ADD COLUMN \`notifications_enabled\` integer DEFAULT 0;`);
       } catch (err) {
         // Column already exists, safe to ignore
+      }
+      
+      // Ensure STDE Tables are created for existing users too
+      try {
+        expoDb.execSync(`
+          CREATE TABLE IF NOT EXISTS \`temp_transactions\` (
+            \`id\` text PRIMARY KEY NOT NULL,
+            \`sms_id\` text,
+            \`sms_hash\` text UNIQUE NOT NULL,
+            \`sms_body\` text NOT NULL,
+            \`bank_name\` text,
+            \`account_last4\` text,
+            \`merchant\` text,
+            \`merchant_raw\` text,
+            \`upi_id\` text,
+            \`amount\` real NOT NULL,
+            \`transaction_type\` text NOT NULL,
+            \`payment_mode\` text,
+            \`transaction_date\` integer NOT NULL,
+            \`status\` text DEFAULT 'PENDING' NOT NULL,
+            \`confidence\` real DEFAULT 0 NOT NULL,
+            \`matched_account_id\` text,
+            \`matched_category_id\` text,
+            \`matched_rule_id\` text,
+            \`processed\` integer DEFAULT 0 NOT NULL,
+            \`created_at\` integer NOT NULL,
+            \`updated_at\` integer NOT NULL
+          );
+        `);
+        expoDb.execSync(`
+          CREATE TABLE IF NOT EXISTS \`sms_rules\` (
+            \`id\` text PRIMARY KEY NOT NULL,
+            \`rule_type\` text NOT NULL,
+            \`merchant_pattern\` text,
+            \`upi_id\` text,
+            \`bank_name\` text,
+            \`account_last4\` text,
+            \`regex_pattern\` text,
+            \`category_id\` text,
+            \`preferred_account_id\` text,
+            \`accepted_count\` integer DEFAULT 0 NOT NULL,
+            \`edited_count\` integer DEFAULT 0 NOT NULL,
+            \`rejected_count\` integer DEFAULT 0 NOT NULL,
+            \`skipped_count\` integer DEFAULT 0 NOT NULL,
+            \`auto_saved_count\` integer DEFAULT 0 NOT NULL,
+            \`confidence\` real DEFAULT 0 NOT NULL,
+            \`last_used\` integer,
+            \`is_enabled\` integer DEFAULT 1 NOT NULL,
+            \`created_at\` integer NOT NULL,
+            \`updated_at\` integer NOT NULL
+          );
+        `);
+        expoDb.execSync(`
+          CREATE TABLE IF NOT EXISTS \`sms_settings\` (
+            \`id\` text PRIMARY KEY NOT NULL,
+            \`auto_save_threshold\` real DEFAULT 98 NOT NULL,
+            \`auto_suggest_threshold\` real DEFAULT 80 NOT NULL,
+            \`review_threshold\` real DEFAULT 60 NOT NULL,
+            \`is_enabled\` integer DEFAULT 1 NOT NULL,
+            \`last_processed_sms_id\` text,
+            \`created_at\` integer NOT NULL,
+            \`updated_at\` integer NOT NULL
+          );
+        `);
+        expoDb.execSync(`CREATE INDEX IF NOT EXISTS \`idx_temp_transactions_date\` ON \`temp_transactions\` (\`transaction_date\`);`);
+        expoDb.execSync(`CREATE INDEX IF NOT EXISTS \`idx_temp_transactions_status\` ON \`temp_transactions\` (\`status\`);`);
+        console.log('STDE tables created successfully for existing database.');
+      } catch (err) {
+        console.error('Failed to create STDE tables for existing database:', err);
       }
     }
   } catch (error) {

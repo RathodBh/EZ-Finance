@@ -204,3 +204,64 @@ export const notifications = sqliteTable('notifications', {
   scheduledAt: integer('scheduled_at').notNull(),
   isRead: integer('is_read', { mode: 'boolean' }).default(false).notNull(),
 });
+
+// STDE Temporary Transactions Table
+export const tempTransactions = sqliteTable('temp_transactions', {
+  id: text('id').primaryKey(),
+  smsId: text('sms_id'),
+  smsHash: text('sms_hash').unique().notNull(), // prevent duplicates
+  smsBody: text('sms_body').notNull(),
+  bankName: text('bank_name'),
+  accountLast4: text('account_last4'),
+  merchant: text('merchant'),
+  merchantRaw: text('merchant_raw'),
+  upiId: text('upi_id'),
+  amount: real('amount').notNull(),
+  transactionType: text('transaction_type').notNull(), // DEBIT | CREDIT
+  paymentMode: text('payment_mode'), // UPI | IMPS | NEFT | RTGS | ATM | CARD | NET_BANKING
+  transactionDate: integer('transaction_date').notNull(), // epoch ms
+  status: text('status').default('PENDING').notNull(), // PENDING | APPROVED | SKIPPED | AUTO_SAVED
+  confidence: real('confidence').default(0).notNull(),
+  matchedAccountId: text('matched_account_id'),
+  matchedCategoryId: text('matched_category_id'),
+  matchedRuleId: text('matched_rule_id'),
+  processed: integer('processed', { mode: 'boolean' }).default(false).notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+// STDE Learning Rules Table
+export const smsRules = sqliteTable('sms_rules', {
+  id: text('id').primaryKey(),
+  ruleType: text('rule_type').notNull(), // MERCHANT | UPI | ACCOUNT | PATTERN
+  merchantPattern: text('merchant_pattern'),
+  upiId: text('upi_id'),
+  bankName: text('bank_name'),
+  accountLast4: text('account_last4'),
+  regexPattern: text('regex_pattern'),
+  categoryId: text('category_id'),
+  preferredAccountId: text('preferred_account_id'),
+  acceptedCount: integer('accepted_count').default(0).notNull(),
+  editedCount: integer('edited_count').default(0).notNull(),
+  rejectedCount: integer('rejected_count').default(0).notNull(),
+  skippedCount: integer('skipped_count').default(0).notNull(),
+  autoSavedCount: integer('auto_saved_count').default(0).notNull(),
+  confidence: real('confidence').default(0).notNull(),
+  lastUsed: integer('last_used'),
+  isEnabled: integer('is_enabled', { mode: 'boolean' }).default(true).notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+// STDE Settings Table
+export const smsSettings = sqliteTable('sms_settings', {
+  id: text('id').primaryKey(),
+  autoSaveThreshold: real('auto_save_threshold').default(98).notNull(),
+  autoSuggestThreshold: real('auto_suggest_threshold').default(80).notNull(),
+  reviewThreshold: real('review_threshold').default(60).notNull(),
+  isEnabled: integer('is_enabled', { mode: 'boolean' }).default(true).notNull(),
+  lastProcessedSmsId: text('last_processed_sms_id'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
