@@ -5,9 +5,10 @@ import { Provider as PaperProvider, Snackbar } from 'react-native-paper';
 import { StatusBar } from 'expo-status-bar';
 import { useAppStore } from '../store/appStore';
 import { paperDarkTheme, paperLightTheme, ThemeColors } from '../styles/theme';
+import { CloudSyncLoadingOverlay } from '../components/CloudSyncLoadingOverlay';
 
 export default function RootLayout() {
-  const { initApp, user, authLoading, theme, dbInitialized, isBootstrapping, toast, hideToast } = useAppStore();
+  const { initApp, user, authLoading, theme, dbInitialized, isBootstrapping, isSyncingCloud, syncStatusMessage, toast, hideToast } = useAppStore();
   const segments = useSegments();
   const router = useRouter();
 
@@ -18,7 +19,7 @@ export default function RootLayout() {
 
   // Handle routing redirects based on auth state
   useEffect(() => {
-    if (authLoading || !dbInitialized) return;
+    if (authLoading || !dbInitialized || isSyncingCloud) return;
 
     const isLoggingIn = segments[0] === 'login';
 
@@ -29,15 +30,24 @@ export default function RootLayout() {
       // Logged in -> redirect to dashboard
       router.replace('/');
     }
-  }, [user, authLoading, dbInitialized, segments]);
+  }, [user, authLoading, dbInitialized, isSyncingCloud, segments]);
 
   const activeColors = ThemeColors[theme];
   const paperTheme = theme === 'dark' ? paperDarkTheme : paperLightTheme;
 
+  if (isSyncingCloud) {
+    return (
+      <PaperProvider theme={paperTheme}>
+        <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+        <CloudSyncLoadingOverlay statusMessage={syncStatusMessage} theme={theme} />
+      </PaperProvider>
+    );
+  }
+
   if (isBootstrapping || !dbInitialized) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: ThemeColors.dark.background }]}>
-        <ActivityIndicator size="large" color={ThemeColors.dark.primary} />
+      <View style={[styles.loadingContainer, { backgroundColor: ThemeColors[theme].background }]}>
+        <ActivityIndicator size="large" color={ThemeColors[theme].primary} />
       </View>
     );
   }

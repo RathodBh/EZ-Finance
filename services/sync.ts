@@ -741,40 +741,30 @@ export const SyncService = {
       `name contains '${prefix}_' and 'appDataFolder' in parents and trashed = false`
     )}&spaces=appDataFolder&fields=files(id,name,modifiedTime)`;
 
-    console.log(`📋 [driveListFiles] prefix="${prefix}", injectedToken: ${injectedAccessToken ? `YES (length: ${injectedAccessToken.length})` : 'NO — will call getFreshAccessToken()'}`);
     const accessToken = injectedAccessToken || await this.getFreshAccessToken();
-    console.log(`📋 [driveListFiles] Using token: ${accessToken ? `YES (length: ${accessToken.length})` : 'NO TOKEN — request will fail with 401'}`);
     if (!accessToken) {
-      console.error(`❌ [driveListFiles] No access token. Cannot list files for "${prefix}".`);
       throw new Error('Google access token is not available. Please sign in again.');
     }
 
-    console.log(`📋 [driveListFiles] GET ${url.substring(0, 120)}...`);
     const response = await this.callDriveAPI(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    console.log(`📋 [driveListFiles] Response status: ${response.status} ${response.statusText}`);
     if (!response.ok) {
       const errBody = await response.text();
-      console.error(`❌ [driveListFiles] Drive API error for "${prefix}": ${response.status} — ${errBody}`);
+      console.error(`❌ Drive API list error for "${prefix}": ${response.status} — ${errBody}`);
       throw new Error(`Drive list failed (${response.status}): ${errBody}`);
     }
 
     const json = await response.json();
-    const files = (json.files || []).map((f: any) => ({ id: f.id, name: f.name, modifiedTime: f.modifiedTime }));
-    console.log(`📋 [driveListFiles] "${prefix}" — ${files.length} files returned from Drive API.`);
-    return files;
+    return (json.files || []).map((f: any) => ({ id: f.id, name: f.name, modifiedTime: f.modifiedTime }));
   },
 
   async driveDownload(fileId: string, injectedAccessToken?: string): Promise<string> {
     const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
     
-    console.log(`⬇️ [driveDownload] fileId="${fileId}", injectedToken: ${injectedAccessToken ? `YES (length: ${injectedAccessToken.length})` : 'NO — will call getFreshAccessToken()'}`);
     const accessToken = injectedAccessToken || await this.getFreshAccessToken();
-    console.log(`⬇️ [driveDownload] Using token: ${accessToken ? `YES (length: ${accessToken.length})` : 'NO TOKEN — request will fail'}`);
     if (!accessToken) {
-      console.error(`❌ [driveDownload] No access token. Cannot download file "${fileId}".`);
       throw new Error('Google access token is not available. Please sign in again.');
     }
 
@@ -782,16 +772,13 @@ export const SyncService = {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    console.log(`⬇️ [driveDownload] Response status for "${fileId}": ${response.status} ${response.statusText}`);
     if (!response.ok) {
       const errBody = await response.text();
-      console.error(`❌ [driveDownload] Drive API error for file "${fileId}": ${response.status} — ${errBody}`);
+      console.error(`❌ Drive API download error for "${fileId}": ${response.status} — ${errBody}`);
       throw new Error(`Drive download failed (${response.status}): ${errBody}`);
     }
 
-    const text = await response.text();
-    console.log(`⬇️ [driveDownload] File "${fileId}" downloaded: ${text.length} bytes.`);
-    return text;
+    return await response.text();
   },
 
   // ─────────────────────────────────────────────────────────────────────────────
