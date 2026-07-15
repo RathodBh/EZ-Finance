@@ -71,7 +71,10 @@ export const SyncService = {
     const deviceId = await getDeviceId();
     const googleAccountId = await getActiveGoogleAccountId();
 
+    console.log(`[Sync] Starting runSync... deviceId: "${deviceId}", googleAccountId: "${googleAccountId}", syncType: "${syncType}"`);
+
     if (!googleAccountId) {
+      console.warn('[Sync] No active Google account session found.');
       return { success: false, uploaded: 0, downloaded: 0, error: 'No active Google account session' };
     }
 
@@ -87,21 +90,20 @@ export const SyncService = {
       if (googleAccountId === 'mock_user_123') {
         mockMode = true;
         accessToken = 'mock_token';
-      } else if (Platform.OS === 'web') {
-        accessToken = await getSecureItem('googleAccessToken');
-      } else if (GoogleSignin) {
-        const tokens = await GoogleSignin.getTokens();
-        accessToken = tokens?.accessToken || null;
+      } else {
+        accessToken = await this.getFreshAccessToken(false);
       }
 
       if (!accessToken) {
+        console.error('[Sync] Google access token retrieval failed.');
         throw new Error('Google access token is not available. Please sign in again.');
       }
 
-      console.log(`Starting sync process (${syncType}). Mock mode: ${mockMode}`);
+      console.log(`[Sync] Google access token retrieved successfully. Starting sync process (mockMode: ${mockMode})`);
 
       // Loop through all tables, sync one-by-one
       for (const { name, table } of SYNCABLE_TABLES) {
+        console.log(`\n--- [Sync] Syncing table: ${name} ---`);
         // 1. Get dirty local records (unsynced modifications) and all records
         let dirtyRecords: any[] = [];
         let allLocalRecords: any[] = [];
@@ -121,19 +123,24 @@ export const SyncService = {
             .from(table);
         }
 
-        // 3. Upload device's state to Google Drive AppData
+        console.log(`[Sync] Table "${name}" - Local records: ${allLocalRecords.length}, Dirty (unsynced) records: ${dirtyRecords.length}`);
+
+        // 3. Upload device's full state to Google Drive AppData.
+        // We ALWAYS upload when local data exists to keep the cloud as a complete, up-to-date snapshot.
         const fileName = `${name}_${deviceId}.json`;
         const payloadStr = JSON.stringify(allLocalRecords);
 
-        if (dirtyRecords.length > 0) {
+        if (allLocalRecords.length > 0) {
+          console.log(`[Sync] Uploading ${allLocalRecords.length} local records for "${name}" to file "${fileName}"...`);
           if (mockMode) {
             await this.mockUpload(fileName, payloadStr);
           } else {
-            await this.driveUpload(accessToken, fileName, payloadStr);
+            await this.driveUpload(fileName, payloadStr);
           }
-          recordsUploaded += dirtyRecords.length;
+          console.log(`[Sync] Successfully uploaded "${name}"`);
+          recordsUploaded += dirtyRecords.length > 0 ? dirtyRecords.length : allLocalRecords.length;
         } else {
-          console.log(`Skipping upload for ${name} - no local changes`);
+          console.log(`[Sync] Skipping upload for "${name}" - no local records to push`);
         }
 
         // 4. Download other devices' state files
@@ -142,34 +149,42 @@ export const SyncService = {
           const files = await this.mockListFiles(name);
           allRemoteFiles = files.map(f => ({ id: f, name: f }));
         } else {
-          allRemoteFiles = await this.driveListFiles(accessToken, name);
+          allRemoteFiles = await this.driveListFiles(name);
         }
+
+        console.log(`[Sync] Remote files found in cloud for "${name}":`, JSON.stringify(allRemoteFiles, null, 2));
 
         const remoteRecords: any[] = [];
         for (const file of allRemoteFiles) {
-          // Skip downloading our own device file
-          if (file.name.includes(deviceId)) continue;
+          // Skip downloading our own device file only if we already have local data to prevent overwriting.
+          // If local data is completely empty (e.g. cleared localStorage), we MUST download it to restore.
+          if (file.name.includes(deviceId) && allLocalRecords.length > 0) {
+            console.log(`[Sync] Skipping download of own device file "${file.name}" as local data exists.`);
+            continue;
+          }
 
           // Check if file has been modified since last sync
           if (file.modifiedTime) {
             const lastSyncedTime = await getSecureItem(`last_sync_${file.name}`);
             if (lastSyncedTime === file.modifiedTime) {
-              console.log(`Skipping download for remote file ${file.name} - already up to date`);
+              console.log(`[Sync] Skipping download for remote file "${file.name}" - already up to date (modifiedTime matches last_sync)`);
               continue;
             }
           }
 
+          console.log(`[Sync] Downloading file "${file.name}" (id: ${file.id})...`);
           let fileContentStr = '';
           if (mockMode) {
             fileContentStr = await this.mockDownload(file.id);
           } else {
-            fileContentStr = await this.driveDownload(accessToken, file.id);
+            fileContentStr = await this.driveDownload(file.id);
           }
 
           if (fileContentStr) {
             try {
               const records = JSON.parse(fileContentStr);
               if (Array.isArray(records)) {
+                console.log(`[Sync] Successfully fetched/downloaded ${records.length} records for "${name}" from file "${file.name}":`, records);
                 remoteRecords.push(...records);
                 // Save modifiedTime to avoid re-downloading next time
                 if (file.modifiedTime) {
@@ -177,7 +192,7 @@ export const SyncService = {
                 }
               }
             } catch (parseErr) {
-              console.warn(`Failed to parse remote file: ${file.name}`, parseErr);
+              console.warn(`[Sync] Failed to parse remote file: ${file.name}`, parseErr);
             }
           }
         }
@@ -185,12 +200,17 @@ export const SyncService = {
         // 5. Merge remote records using Latest-Version-Wins
         let tableDownloadedCount = 0;
         if (remoteRecords.length > 0) {
+          console.log(`[Sync] Merging ${remoteRecords.length} remote records into table "${name}"...`);
           tableDownloadedCount = await this.mergeRecords(name, table, remoteRecords);
+          console.log(`[Sync] Merge completed. Merged/updated ${tableDownloadedCount} records for "${name}".`);
           recordsDownloaded += tableDownloadedCount;
+        } else {
+          console.log(`[Sync] No remote records found to merge for table "${name}".`);
         }
 
         // 6. Mark all local records as synced since we pushed our full state
-        if (dirtyRecords.length > 0) {
+        if (allLocalRecords.length > 0) {
+          console.log(`[Sync] Marking local records for "${name}" as synced.`);
           if (Platform.OS === 'web') {
             const updatedLocal = allLocalRecords.map((r: any) => ({
               ...r,
@@ -204,18 +224,17 @@ export const SyncService = {
               .set({
                 isSynced: true,
                 syncStatus: 'SYNCED',
-              } as any)
-              .where(eq((table as any).isSynced, false));
+              } as any);
           }
         }
       }
 
       success = true;
-      console.log('Sync process completed successfully!');
+      console.log(`[Sync] Sync process completed successfully! Uploaded: ${recordsUploaded}, Downloaded: ${recordsDownloaded}`);
     } catch (error: any) {
       success = false;
       errorMessage = error.message || String(error);
-      console.error('Sync process failed:', error);
+      console.error('[Sync] Sync process failed:', error);
     } finally {
       // 7. Log sync activity to local db
       try {
@@ -266,6 +285,160 @@ export const SyncService = {
     }
 
     return { success, uploaded: recordsUploaded, downloaded: recordsDownloaded, error: errorMessage };
+  },
+
+  /**
+   * Checks whether any table has local data stored.
+   * Used to determine if the user needs a restore (empty) or an upload (has data).
+   */
+  async hasLocalData(): Promise<boolean> {
+    console.log('[hasLocalData] Checking local storage for existing data...');
+    if (Platform.OS === 'web') {
+      for (const { name } of SYNCABLE_TABLES) {
+        const stored = localStorage.getItem(`ff_${name}`);
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              console.log(`[hasLocalData] Found ${parsed.length} records in localStorage key "ff_${name}". Local data EXISTS.`);
+              return true;
+            } else {
+              console.log(`[hasLocalData] Key "ff_${name}" is present but empty (length: ${Array.isArray(parsed) ? parsed.length : 'not array'}).`);
+            }
+          } catch (e) {
+            console.warn(`[hasLocalData] Failed to parse localStorage key "ff_${name}":`, e);
+          }
+        } else {
+          console.log(`[hasLocalData] Key "ff_${name}" is not set in localStorage.`);
+        }
+      }
+      console.log('[hasLocalData] No local data found across all tables. Local DB is EMPTY.');
+      return false;
+    }
+    // Native: check the accounts table as a proxy
+    const rows = await db.select().from(schema.accounts);
+    console.log(`[hasLocalData] Native accounts table has ${rows.length} rows.`);
+    return rows.length > 0;
+  },
+
+  /**
+   * Restore all data from Google Drive into the local database.
+   * Used after a fresh login when the local DB is completely empty.
+   * @param explicitGoogleAccountId - Pass the account ID directly (e.g. right after OAuth redirect
+   *   before it has been persisted to localStorage/SecureStore).
+   * @param explicitAccessToken - Pass the access token directly to bypass localStorage lookup.
+   *   Used right after OAuth redirect to avoid timing issues.
+   */
+  async restoreFromCloud(explicitGoogleAccountId?: string, explicitAccessToken?: string): Promise<{ success: boolean; downloaded: number; error?: string }> {
+    const googleAccountId = explicitGoogleAccountId || await getActiveGoogleAccountId();
+
+    console.log(`\n☁️ [Restore] ===== STARTING RESTORE FROM CLOUD =====`);
+    console.log(`☁️ [Restore] explicitGoogleAccountId arg: "${explicitGoogleAccountId || '(not provided — will read from storage)'}"`);
+    console.log(`☁️ [Restore] explicitAccessToken arg: ${explicitAccessToken ? `PROVIDED (length: ${explicitAccessToken.length})` : 'NOT PROVIDED — will call getFreshAccessToken()'}`);
+    console.log(`☁️ [Restore] Resolved googleAccountId: "${googleAccountId}"`);
+    console.log(`☁️ [Restore] Platform: ${Platform.OS}`);
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const lsAccountId = localStorage.getItem('googleAccountId');
+      const lsToken = localStorage.getItem('googleAccessToken');
+      console.log(`☁️ [Restore] localStorage.googleAccountId: "${lsAccountId || 'NOT SET'}"`);
+      console.log(`☁️ [Restore] localStorage.googleAccessToken: ${lsToken ? `present (length: ${lsToken.length})` : 'NOT SET'}`);
+    }
+
+    if (!googleAccountId) {
+      console.error('❌ [Restore] ABORT: No Google Account ID available. Cannot restore without authentication.');
+      return { success: false, downloaded: 0, error: 'No active Google account. Please sign in first.' };
+    }
+
+    if (googleAccountId === 'offline_user' || googleAccountId === 'mock_user_123') {
+      console.warn(`⚠️ [Restore] ABORT: Skipping restore — account is offline/mock: "${googleAccountId}"`);
+      return { success: false, downloaded: 0, error: 'Cannot restore from cloud for offline/mock accounts.' };
+    }
+
+    let totalDownloaded = 0;
+
+    try {
+      let accessToken: string | null = explicitAccessToken || null;
+      if (!accessToken) {
+        console.log('🔑 [Restore] No explicit token provided — calling getFreshAccessToken()...');
+        accessToken = await this.getFreshAccessToken();
+        console.log(`🔑 [Restore] getFreshAccessToken() returned: ${accessToken ? `token (length: ${accessToken.length})` : 'NULL — token not available'}`);
+      } else {
+        console.log(`🔑 [Restore] Using explicitly provided access token (length: ${accessToken.length}). Skipping getFreshAccessToken().`);
+      }
+
+      if (!accessToken) {
+        console.error('❌ [Restore] ABORT: Access token is null after token resolution. Cannot call Drive API.');
+        throw new Error('Google access token not available. Please sign in again.');
+      }
+
+      console.log(`☁️ [Restore] Access token confirmed. Starting per-table restore loop over ${SYNCABLE_TABLES.length} tables...`);
+
+      for (const { name, table } of SYNCABLE_TABLES) {
+        console.log(`\n📁 [Restore] --- Table: "${name}" ---`);
+
+        let allRemoteFiles: { id: string; name: string; modifiedTime: string }[] = [];
+        try {
+          console.log(`📁 [Restore] Calling driveListFiles("${name}")...`);
+          allRemoteFiles = await this.driveListFiles(name, accessToken);
+          console.log(`📁 [Restore] driveListFiles("${name}") returned ${allRemoteFiles.length} file(s).`);
+          if (allRemoteFiles.length > 0) {
+            allRemoteFiles.forEach(f => console.log(`  📄 "${f.name}" (id: ${f.id}, modifiedTime: ${f.modifiedTime})`));
+          } else {
+            console.log(`📁 [Restore] No files found in Drive for table "${name}". Skipping.`);
+          }
+        } catch (listErr: any) {
+          console.error(`❌ [Restore] driveListFiles("${name}") threw an error: ${listErr.message}`, listErr);
+          continue;
+        }
+
+        const remoteRecords: any[] = [];
+        for (const file of allRemoteFiles) {
+          console.log(`⬇️ [Restore] Downloading file "${file.name}" (id: ${file.id})...`);
+          try {
+            const content = await this.driveDownload(file.id, accessToken);
+            console.log(`⬇️ [Restore] Raw content received for "${file.name}": ${content ? `${content.length} bytes` : 'EMPTY/NULL'}`);
+            if (content) {
+              let records: any;
+              try {
+                records = JSON.parse(content);
+              } catch (parseErr: any) {
+                console.error(`❌ [Restore] JSON.parse failed for "${file.name}": ${parseErr.message}. Raw content (first 200 chars): ${content.substring(0, 200)}`);
+                continue;
+              }
+              if (Array.isArray(records)) {
+                console.log(`⬇️ [Restore] Parsed ${records.length} records from "${file.name}".`);
+                if (records.length > 0) {
+                  console.log(`⬇️ [Restore] First record sample: ${JSON.stringify(records[0]).substring(0, 150)}`);
+                }
+                remoteRecords.push(...records);
+              } else {
+                console.warn(`⚠️ [Restore] Content of "${file.name}" is not a JSON array. Type: ${typeof records}. Skipping.`);
+              }
+            } else {
+              console.warn(`⚠️ [Restore] File "${file.name}" returned empty/null content. Skipping.`);
+            }
+          } catch (dlErr: any) {
+            console.error(`❌ [Restore] driveDownload("${file.name}") threw: ${dlErr.message}`, dlErr);
+          }
+        }
+
+        if (remoteRecords.length > 0) {
+          console.log(`🔀 [Restore] Merging ${remoteRecords.length} remote records into local "${name}"...`);
+          const merged = await this.mergeRecords(name, table, remoteRecords);
+          totalDownloaded += merged;
+          console.log(`✅ [Restore] Merge complete for "${name}": ${merged} records inserted/updated. Running total: ${totalDownloaded}`);
+        } else {
+          console.log(`📭 [Restore] No remote records collected for "${name}" — skipping merge.`);
+        }
+      }
+
+      console.log(`\n🏁 [Restore] ===== RESTORE COMPLETE =====`);
+      console.log(`🏁 [Restore] Total records restored across all tables: ${totalDownloaded}`);
+      return { success: true, downloaded: totalDownloaded };
+    } catch (err: any) {
+      console.error('❌ [Restore] RESTORE FAILED with unhandled exception:', err);
+      return { success: false, downloaded: totalDownloaded, error: err.message || String(err) };
+    }
   },
 
   /**
@@ -400,8 +573,99 @@ export const SyncService = {
   // GOOGLE DRIVE REST API INTEGRATION
   // ─────────────────────────────────────────────────────────────────────────────
   
-  async driveUpload(accessToken: string, fileName: string, content: string): Promise<void> {
-    const existingFileId = await this.driveFindFileId(accessToken, fileName);
+  async getFreshAccessToken(forceRefresh = false): Promise<string | null> {
+    const googleAccountId = await getActiveGoogleAccountId();
+    console.log(`🔑 [getFreshAccessToken] Called. googleAccountId from storage: "${googleAccountId || 'NOT SET'}", forceRefresh: ${forceRefresh}, Platform: ${Platform.OS}`);
+
+    // Only return mock token for actual mock/test accounts
+    if (googleAccountId === 'mock_user_123') {
+      console.log('🔑 [getFreshAccessToken] Returning mock token for mock account.');
+      return 'mock_token';
+    }
+
+    if (Platform.OS === 'web') {
+      if (forceRefresh) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('googleAccessToken');
+        }
+        console.warn('🔑 [getFreshAccessToken] Force refresh on web — token cleared. User must re-authenticate.');
+        return null;
+      }
+      const token = await getSecureItem('googleAccessToken');
+      console.log(`🔑 [getFreshAccessToken] Web: reading "googleAccessToken" from localStorage — ${token ? `FOUND (length: ${token.length})` : 'NOT FOUND (this is the likely cause of restore failure!)'}`);
+      if (!token && typeof window !== 'undefined') {
+        // Log ALL localStorage keys to help debug what is / isn't there
+        const allKeys = Object.keys(localStorage);
+        console.warn(`🔑 [getFreshAccessToken] Web: ALL localStorage keys present (${allKeys.length}): ${JSON.stringify(allKeys)}`);
+      }
+      return token;
+    }
+
+    if (GoogleSignin) {
+      try {
+        if (forceRefresh) {
+          console.log('🔑 [getFreshAccessToken] Native: force refresh — clearing cached token and signing in silently...');
+          try {
+            const currentTokens = await GoogleSignin.getTokens();
+            if (currentTokens?.accessToken) {
+              await GoogleSignin.clearCachedAccessToken(currentTokens.accessToken);
+              console.log('🔑 [getFreshAccessToken] Native: cached token cleared.');
+            }
+          } catch (clearErr) {
+            console.warn('🔑 [getFreshAccessToken] Native: Failed to clear cached token:', clearErr);
+          }
+          await GoogleSignin.signInSilently();
+        }
+        const tokens = await GoogleSignin.getTokens();
+        const token = tokens?.accessToken || null;
+        console.log(`🔑 [getFreshAccessToken] Native: GoogleSignin.getTokens() returned: ${token ? `token (length: ${token.length})` : 'NULL'}`);
+        return token;
+      } catch (err) {
+        console.warn('🔑 [getFreshAccessToken] Native: Error getting token:', err);
+        try {
+          console.log('🔑 [getFreshAccessToken] Native: Attempting silent sign-in recovery...');
+          await GoogleSignin.signInSilently();
+          const tokens = await GoogleSignin.getTokens();
+          const token = tokens?.accessToken || null;
+          console.log(`🔑 [getFreshAccessToken] Native: Silent sign-in recovery token: ${token ? `OK (length: ${token.length})` : 'NULL'}`);
+          return token;
+        } catch (silentErr) {
+          console.error('🔑 [getFreshAccessToken] Native: Silent sign-in failed:', silentErr);
+        }
+      }
+    } else {
+      console.warn('🔑 [getFreshAccessToken] Native: GoogleSignin module is NULL — not loaded.');
+    }
+    console.error('🔑 [getFreshAccessToken] Returning NULL — could not retrieve any token.');
+    return null;
+  },
+
+  async callDriveAPI(
+    url: string,
+    options: RequestInit,
+    retryCount = 0
+  ): Promise<Response> {
+    const response = await fetch(url, options);
+    
+    if (response.status === 401 && retryCount < 1) {
+      console.warn('Received 401 from Google Drive API. Attempting token refresh...');
+      const freshToken = await this.getFreshAccessToken(true);
+      if (freshToken) {
+        const headers = { ...options.headers } as Record<string, string>;
+        headers['Authorization'] = `Bearer ${freshToken}`;
+        return this.callDriveAPI(url, { ...options, headers }, retryCount + 1);
+      } else {
+        if (Platform.OS === 'web') {
+          throw new Error('Google session expired. Please connect your Google account again.');
+        }
+      }
+    }
+    
+    return response;
+  },
+
+  async driveUpload(fileName: string, content: string): Promise<void> {
+    const existingFileId = await this.driveFindFileId(fileName);
     
     const meta = {
       name: fileName,
@@ -429,7 +693,12 @@ export const SyncService = {
       method = 'PATCH';
     }
 
-    const response = await fetch(url, {
+    const accessToken = await this.getFreshAccessToken();
+    if (!accessToken) {
+      throw new Error('Google access token is not available. Please sign in again.');
+    }
+
+    const response = await this.callDriveAPI(url, {
       method,
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -444,12 +713,17 @@ export const SyncService = {
     }
   },
 
-  async driveFindFileId(accessToken: string, fileName: string): Promise<string | null> {
+  async driveFindFileId(fileName: string): Promise<string | null> {
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
       `name = '${fileName}' and 'appDataFolder' in parents and trashed = false`
     )}&spaces=appDataFolder`;
 
-    const response = await fetch(url, {
+    const accessToken = await this.getFreshAccessToken();
+    if (!accessToken) {
+      return null;
+    }
+
+    const response = await this.callDriveAPI(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
@@ -462,35 +736,62 @@ export const SyncService = {
     return null;
   },
 
-  async driveListFiles(accessToken: string, prefix: string): Promise<{ id: string; name: string; modifiedTime: string }[]> {
+  async driveListFiles(prefix: string, injectedAccessToken?: string): Promise<{ id: string; name: string; modifiedTime: string }[]> {
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
       `name contains '${prefix}_' and 'appDataFolder' in parents and trashed = false`
     )}&spaces=appDataFolder&fields=files(id,name,modifiedTime)`;
 
-    const response = await fetch(url, {
+    console.log(`📋 [driveListFiles] prefix="${prefix}", injectedToken: ${injectedAccessToken ? `YES (length: ${injectedAccessToken.length})` : 'NO — will call getFreshAccessToken()'}`);
+    const accessToken = injectedAccessToken || await this.getFreshAccessToken();
+    console.log(`📋 [driveListFiles] Using token: ${accessToken ? `YES (length: ${accessToken.length})` : 'NO TOKEN — request will fail with 401'}`);
+    if (!accessToken) {
+      console.error(`❌ [driveListFiles] No access token. Cannot list files for "${prefix}".`);
+      throw new Error('Google access token is not available. Please sign in again.');
+    }
+
+    console.log(`📋 [driveListFiles] GET ${url.substring(0, 120)}...`);
+    const response = await this.callDriveAPI(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
+    console.log(`📋 [driveListFiles] Response status: ${response.status} ${response.statusText}`);
     if (!response.ok) {
-      throw new Error(`Drive list failed: ${response.statusText}`);
+      const errBody = await response.text();
+      console.error(`❌ [driveListFiles] Drive API error for "${prefix}": ${response.status} — ${errBody}`);
+      throw new Error(`Drive list failed (${response.status}): ${errBody}`);
     }
 
     const json = await response.json();
-    return (json.files || []).map((f: any) => ({ id: f.id, name: f.name, modifiedTime: f.modifiedTime }));
+    const files = (json.files || []).map((f: any) => ({ id: f.id, name: f.name, modifiedTime: f.modifiedTime }));
+    console.log(`📋 [driveListFiles] "${prefix}" — ${files.length} files returned from Drive API.`);
+    return files;
   },
 
-  async driveDownload(accessToken: string, fileId: string): Promise<string> {
+  async driveDownload(fileId: string, injectedAccessToken?: string): Promise<string> {
     const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
     
-    const response = await fetch(url, {
+    console.log(`⬇️ [driveDownload] fileId="${fileId}", injectedToken: ${injectedAccessToken ? `YES (length: ${injectedAccessToken.length})` : 'NO — will call getFreshAccessToken()'}`);
+    const accessToken = injectedAccessToken || await this.getFreshAccessToken();
+    console.log(`⬇️ [driveDownload] Using token: ${accessToken ? `YES (length: ${accessToken.length})` : 'NO TOKEN — request will fail'}`);
+    if (!accessToken) {
+      console.error(`❌ [driveDownload] No access token. Cannot download file "${fileId}".`);
+      throw new Error('Google access token is not available. Please sign in again.');
+    }
+
+    const response = await this.callDriveAPI(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
+    console.log(`⬇️ [driveDownload] Response status for "${fileId}": ${response.status} ${response.statusText}`);
     if (!response.ok) {
-      throw new Error(`Drive download failed: ${response.statusText}`);
+      const errBody = await response.text();
+      console.error(`❌ [driveDownload] Drive API error for file "${fileId}": ${response.status} — ${errBody}`);
+      throw new Error(`Drive download failed (${response.status}): ${errBody}`);
     }
 
-    return await response.text();
+    const text = await response.text();
+    console.log(`⬇️ [driveDownload] File "${fileId}" downloaded: ${text.length} bytes.`);
+    return text;
   },
 
   // ─────────────────────────────────────────────────────────────────────────────

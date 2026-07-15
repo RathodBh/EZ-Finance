@@ -127,47 +127,86 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   initApp: async () => {
+    console.log('🚀 [initApp] ===== APP INITIALIZATION STARTED =====');
+    console.log(`🚀 [initApp] Platform: ${Platform.OS}`);
     try {
       // 1. Initialize SQLite Database
+      console.log('🗄️ [initApp] Step 1: Initializing database...');
       await initDb();
+      console.log('🗄️ [initApp] Step 1: Database initialized successfully.');
       
       // 1b. Check for Google OAuth Redirect hash on web
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         const hash = window.location.hash;
+        console.log(`🌐 [initApp] Step 1b: Checking URL hash for OAuth redirect. Hash present: ${!!hash}, Contains access_token: ${hash?.includes('access_token=')}`);
+        console.log(`🌐 [initApp] Step 1b: Full hash value: "${hash || '(empty)'}"`);
         if (hash && hash.includes('access_token=')) {
+          console.log('🔑 [initApp] Step 1b: OAuth redirect detected! Parsing access_token...');
           const params = new URLSearchParams(hash.substring(1));
           const accessToken = params.get('access_token');
+          console.log(`🔑 [initApp] Step 1b: Access token parsed: ${accessToken ? `YES (length: ${accessToken.length})` : 'NO — token missing from hash'}`);
           if (accessToken) {
             // Clean URL hash
             window.history.replaceState(null, '', window.location.pathname + window.location.search);
+            console.log('🔑 [initApp] Step 1b: URL hash cleaned.');
             try {
               set({ authLoading: true });
+              console.log('👤 [initApp] Step 1b: Fetching user profile from Google using access token...');
               const session = await AuthService.handleRedirectCallback(accessToken);
+              console.log(`👤 [initApp] Step 1b: User profile fetched. email: "${session.email}", id: "${session.id}"`);
+              console.log(`👤 [initApp] Step 1b: googleAccessToken in localStorage AFTER handleRedirectCallback: ${typeof window !== 'undefined' ? (localStorage.getItem('googleAccessToken') ? `YES (length: ${localStorage.getItem('googleAccessToken')!.length})` : 'NOT FOUND') : 'N/A'}`);
+              console.log(`👤 [initApp] Step 1b: googleAccountId in localStorage AFTER handleRedirectCallback: ${typeof window !== 'undefined' ? (localStorage.getItem('googleAccountId') || 'NOT FOUND') : 'N/A'}`);
               
-              // Check if profile exists and has a currency preference
+              // ALWAYS restore from Google Drive FIRST when logging in with Google.
+              // Do NOT check local DB profile beforehand because local storage / DB might have been cleared!
+              console.log('☁️ [initApp] Step 1b: Running cloud restore for Google user...');
+              console.log(`☁️ [initApp] Step 1b: Passing explicitGoogleAccountId="${session.id}", explicitAccessToken=${accessToken ? `YES (length: ${accessToken.length})` : 'NONE'}`);
+              get().showToast('Checking Google Drive for your data...', 'info');
+              
+              const restoreResult = await SyncService.restoreFromCloud(session.id, accessToken);
+              console.log(`☁️ [initApp] Step 1b: restoreFromCloud result: success=${restoreResult.success}, downloaded=${restoreResult.downloaded}, error=${restoreResult.error || 'none'}`);
+              
+              // Now check if profile/currency exists post-restore, or use saved/default currency
               const profile = await UserRepository.getProfile(session.id);
-              const savedCurrency = profile?.currency;
-              
-              if (savedCurrency) {
-                // Complete login directly
-                set({ user: session, currency: savedCurrency, authLoading: false, appLocked: false });
-                await get().refreshAllData();
-                get().triggerSync();
+              const effectiveCurrency = profile?.currency || (typeof window !== 'undefined' ? localStorage.getItem('currency') : null) || 'USD';
+              console.log(`📋 [initApp] Step 1b: Post-restore profile found: ${profile ? 'YES' : 'NO'}, effectiveCurrency: "${effectiveCurrency}"`);
+
+              // Ensure profile is saved to DB
+              await UserRepository.upsertProfile({
+                id: session.id,
+                googleId: session.id,
+                email: session.email,
+                displayName: session.name,
+                photoUrl: session.photoUrl || undefined,
+                currency: effectiveCurrency,
+              });
+
+              set({ user: session, currency: effectiveCurrency, authLoading: false, appLocked: false });
+              console.log('🔄 [initApp] Step 1b: User session established. Refreshing local store data...');
+              await get().refreshAllData();
+
+              if (restoreResult.success && restoreResult.downloaded > 0) {
+                get().showToast(`Data restored! ${restoreResult.downloaded} records loaded from Drive.`, 'success');
+              } else if (!restoreResult.error) {
+                get().showToast('Signed in with Google!', 'info');
               } else {
-                // Save temp session to let OnboardingScreen trigger currency select step
-                set({ tempGoogleSession: session, authLoading: false });
+                get().showToast('Signed in, but could not restore from Drive. Try Sync later.', 'error');
               }
             } catch (err) {
-              console.error('Error handling redirect login:', err);
+              console.error('❌ [initApp] Step 1b: Error handling OAuth redirect:', err);
               set({ authLoading: false });
             }
           }
+        } else {
+          console.log('🌐 [initApp] Step 1b: No OAuth redirect detected. Normal startup.');
         }
       }
       
       // 2. Fetch User Session
+      console.log('👤 [initApp] Step 2: Fetching stored user session...');
       const user = await AuthService.getCurrentUser();
       const signedIn = !!user;
+      console.log(`👤 [initApp] Step 2: Stored user session: ${user ? `"${user.email}" (id: "${user.id}")` : 'NONE — not signed in'}`);
 
       // 3. Load auto sync preference
       let autoSyncEnabled = false;
@@ -226,6 +265,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         } catch {}
       }
 
+      console.log(`⚙️ [initApp] Step 3: Setting app state — user: ${user ? user.email : 'null'}, dbInitialized: true, theme: ${savedTheme}, currency: ${savedCurrency}`);
       set({ 
         user, 
         authLoading: false, 
@@ -238,15 +278,20 @@ export const useAppStore = create<AppState>((set, get) => ({
         // Set appLocked to false by default for better sandbox UX
         appLocked: false 
       });
+      console.log('⚙️ [initApp] Step 3: App state set successfully.');
 
       // 4. Load all DB data if logged in
       if (signedIn) {
+        console.log(`📊 [initApp] Step 4: User is signed in. Loading all data from DB...`);
         await get().refreshAllData();
+        console.log('📊 [initApp] Step 4: refreshAllData complete.');
 
         // Sync with user preferences stored in the DB if available
         if (user) {
           try {
+            console.log(`📋 [initApp] Step 4: Loading user preferences from DB profile for "${user.id}"...`);
             const profile = await UserRepository.getProfile(user.id);
+            console.log(`📋 [initApp] Step 4: DB profile: ${profile ? JSON.stringify({ currency: profile.currency, notificationsEnabled: profile.notificationsEnabled }) : 'NOT FOUND'}`);
             if (profile) {
               let dbCurrency = get().currency;
               let dbNotifs = get().notificationsEnabled;
@@ -257,6 +302,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 dbNotifs = !!profile.notificationsEnabled;
               }
               set({ currency: dbCurrency, notificationsEnabled: dbNotifs });
+              console.log(`📋 [initApp] Step 4: Preferences applied — currency: ${dbCurrency}, notifications: ${dbNotifs}`);
 
               // Persist synced values locally
               if (Platform.OS === 'web') {
@@ -271,15 +317,21 @@ export const useAppStore = create<AppState>((set, get) => ({
               }
             }
           } catch (profileErr) {
-            console.error('Failed to sync DB user preferences on init:', profileErr);
+            console.error('❌ [initApp] Step 4: Failed to sync DB user preferences on init:', profileErr);
           }
         }
 
         // Auto-trigger sync on startup if logged in with Google (not offline) and autoSync is enabled
         if (user && user.id !== 'offline_user' && autoSyncEnabled) {
+          console.log('🔄 [initApp] Step 4: autoSync is enabled. Triggering background sync...');
           get().triggerSync();
+        } else {
+          console.log(`🔄 [initApp] Step 4: autoSync skipped — autoSyncEnabled=${autoSyncEnabled}, userId=${user?.id}`);
         }
+      } else {
+        console.log('👤 [initApp] Step 4: No signed-in user. Skipping data load.');
       }
+      console.log('🏁 [initApp] ===== INITIALIZATION COMPLETE =====');
 
       // Schedule or cancel reminders based on loaded preference
       try {
@@ -398,11 +450,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   login: async (session: UserSession, currencyPreference = 'USD') => {
+    console.log(`\n🔐 [login] ===== LOGIN STARTED =====`);
+    console.log(`🔐 [login] session.id: "${session.id}", session.email: "${session.email}", currencyPreference: "${currencyPreference}"`);
+    console.log(`🔐 [login] _accessToken embedded in session: ${ (session as any)._accessToken ? `YES (length: ${(session as any)._accessToken.length})` : 'NO' }`);
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      console.log(`🔐 [login] localStorage.googleAccountId: ${localStorage.getItem('googleAccountId') || 'NOT SET'}`);
+      console.log(`🔐 [login] localStorage.googleAccessToken: ${localStorage.getItem('googleAccessToken') ? `present (length: ${localStorage.getItem('googleAccessToken')!.length})` : 'NOT SET'}`);
+    }
     set({ authLoading: true });
     try {
+      console.log('🔐 [login] Setting user state and clearing tempGoogleSession...');
       set({ user: session, currency: currencyPreference, tempGoogleSession: null, authLoading: false, appLocked: false });
       if (Platform.OS === 'web') {
         localStorage.setItem('currency', currencyPreference);
+        console.log(`🔐 [login] currency "${currencyPreference}" saved to localStorage.`);
       } else {
         try {
           const SecureStore = require('expo-secure-store');
@@ -410,6 +471,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         } catch {}
       }
 
+      console.log('🔐 [login] Upserting user profile in DB...');
       await UserRepository.upsertProfile({
         id: session.id,
         googleId: session.id,
@@ -418,12 +480,46 @@ export const useAppStore = create<AppState>((set, get) => ({
         photoUrl: session.photoUrl || undefined,
         currency: currencyPreference,
       });
+      console.log('🔐 [login] User profile upserted.');
 
+      console.log('📊 [login] Calling refreshAllData...');
       await get().refreshAllData();
-      // Auto-trigger sync on login to pull down cloud data
-      get().triggerSync();
+      console.log('📊 [login] refreshAllData complete.');
+
+      // Always attempt to restore from Drive when logging in with Google.
+      if (session.id !== 'offline_user') {
+        // Extract the raw access token if initApp embedded it in the session object.
+        const rawAccessToken = (session as any)._accessToken || null;
+        console.log(`☁️ [login] Google user detected. Preparing to restore from Drive...`);
+        console.log(`☁️ [login] Raw _accessToken from session: ${rawAccessToken ? `YES (length: ${rawAccessToken.length})` : 'NOT embedded'}`);
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          const lsToken = localStorage.getItem('googleAccessToken');
+          console.log(`☁️ [login] localStorage.googleAccessToken at restore time: ${lsToken ? `present (length: ${lsToken.length})` : 'NOT SET — this will cause token failure if no explicit token passed!'}`);
+          const lsAccountId = localStorage.getItem('googleAccountId');
+          console.log(`☁️ [login] localStorage.googleAccountId at restore time: ${lsAccountId || 'NOT SET'}`);
+        }
+        console.log(`☁️ [login] Calling SyncService.restoreFromCloud("${session.id}", explicitToken=${rawAccessToken ? 'YES' : 'NO'})`);
+        get().showToast('Checking Google Drive for your data...', 'info');
+        const restoreResult = await SyncService.restoreFromCloud(session.id, rawAccessToken ?? undefined);
+        console.log(`☁️ [login] restoreFromCloud result: success=${restoreResult.success}, downloaded=${restoreResult.downloaded}, error=${restoreResult.error || 'none'}`);
+        if (restoreResult.success && restoreResult.downloaded > 0) {
+          console.log(`✅ [login] Drive restore complete. ${restoreResult.downloaded} records loaded. Refreshing data...`);
+          get().showToast(`Data restored from Drive! ${restoreResult.downloaded} records loaded.`, 'success');
+          await get().refreshAllData();
+          console.log('✅ [login] refreshAllData after restore complete.');
+        } else if (!restoreResult.error) {
+          console.log('ℹ️ [login] Drive restore ran but found 0 new records (Drive may be empty or already up to date).');
+          get().showToast('Signed in with Google! No prior backup found in Drive.', 'info');
+        } else {
+          console.warn('⚠️ [login] Drive restore had an error:', restoreResult.error);
+          get().showToast('Signed in, but could not load data from Drive. Try using Sync later.', 'error');
+        }
+      } else {
+        console.log('👤 [login] Offline user — skipping Drive restore.');
+      }
+      console.log('🏁 [login] ===== LOGIN COMPLETE =====');
     } catch (e) {
-      console.error('Login error:', e);
+      console.error('❌ [login] Login error:', e);
       set({ authLoading: false });
       throw e;
     }
@@ -466,8 +562,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const currentCurrency = get().currency;
       const currentNotifications = get().notificationsEnabled;
       const session = await AuthService.signIn();
-      await SyncService.migrateOfflineData(session.id);
-      
+
       await UserRepository.upsertProfile({
         id: session.id,
         googleId: session.id,
@@ -479,8 +574,35 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
 
       set({ user: session, authLoading: false, appLocked: false });
+
+      // Determine whether local DB is empty or has existing data
+      const hasData = await SyncService.hasLocalData();
+      console.log(`[connectGoogleAccount] Has local data: ${hasData}`);
+
+      if (!hasData) {
+        // Empty local DB — restore all data from Google Drive
+        console.log('[connectGoogleAccount] No local data found. Restoring from Google Drive...');
+        get().showToast('Restoring your data from Google Drive...', 'info');
+        // Pass session.id explicitly — localStorage may not have 'googleAccountId' yet
+        const restoreResult = await SyncService.restoreFromCloud(session.id);
+        if (restoreResult.success && restoreResult.downloaded > 0) {
+          console.log(`[connectGoogleAccount] Restore complete. ${restoreResult.downloaded} records restored.`);
+          get().showToast(`Data restored successfully! ${restoreResult.downloaded} records loaded.`, 'success');
+        } else if (restoreResult.downloaded === 0) {
+          console.log('[connectGoogleAccount] No Drive data found to restore.');
+          get().showToast('Google account connected. No previous data found in Drive.', 'info');
+        } else {
+          console.warn('[connectGoogleAccount] Restore had issues:', restoreResult.error);
+          get().showToast('Could not fully restore from Drive. You can try syncing again.', 'error');
+        }
+      } else {
+        // Has local data — mark all records as dirty and upload to Drive
+        console.log('[connectGoogleAccount] Local data found. Migrating and uploading to Google Drive...');
+        await SyncService.migrateOfflineData(session.id);
+        await get().triggerSync();
+      }
+
       await get().refreshAllData();
-      await get().triggerSync();
     } catch (e) {
       console.error('Connect Google error:', e);
       set({ authLoading: false });
