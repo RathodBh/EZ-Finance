@@ -69,6 +69,8 @@ export class SmsService {
         matchedAccountId: ruleMatch.matchedAccountId,
         matchedCategoryId: ruleMatch.matchedCategoryId,
         matchedRuleId: ruleMatch.matchedRuleId,
+        isTransfer: ruleMatch.isTransfer || false,
+        toAccountId: ruleMatch.matchedToAccountId || null,
         processed: ruleMatch.autoSave,
       };
 
@@ -76,11 +78,13 @@ export class SmsService {
       await SmsRepository.saveTempTransaction(tempTx);
 
       // Promote instantly if auto-save criteria is met
-      if (ruleMatch.autoSave && ruleMatch.matchedAccountId && ruleMatch.matchedCategoryId) {
+      if (ruleMatch.autoSave && ruleMatch.matchedAccountId && (ruleMatch.matchedCategoryId || ruleMatch.isTransfer)) {
         await this.promoteToRealTransaction(
           tempTx,
-          ruleMatch.matchedCategoryId,
-          ruleMatch.matchedAccountId
+          ruleMatch.matchedCategoryId || 'transfer_cat_id',
+          ruleMatch.matchedAccountId,
+          ruleMatch.isTransfer,
+          ruleMatch.matchedToAccountId || undefined
         );
         
         // Update stats
@@ -105,17 +109,27 @@ export class SmsService {
   /**
    * Promotes a temp transaction into a real financial transaction in the main db
    */
-  async promoteToRealTransaction(tempTx: any, categoryId: string, accountId: string): Promise<any> {
+  async promoteToRealTransaction(
+    tempTx: any, 
+    categoryId: string, 
+    accountId: string, 
+    isTransfer?: boolean, 
+    toAccountId?: string
+  ): Promise<any> {
+    const isTxTransfer = isTransfer ?? tempTx.isTransfer ?? (tempTx.transactionType === 'TRANSFER');
+    const finalToAccountId = toAccountId || tempTx.toAccountId;
+
     const txData = {
       id: `tx_${uuid()}`,
       amount: tempTx.amount,
       date: tempTx.transactionDate,
       description: tempTx.merchant ? `SMS: ${tempTx.merchant}` : tempTx.smsBody.substring(0, 50),
-      type: tempTx.transactionType, // DEBIT | CREDIT
+      type: isTxTransfer ? 'TRANSFER' : tempTx.transactionType, // DEBIT | CREDIT | TRANSFER
       accountId: accountId,
-      categoryId: categoryId,
+      toAccountId: isTxTransfer ? finalToAccountId : null,
+      categoryId: isTxTransfer ? (categoryId || 'transfer_cat_id') : categoryId,
       merchant: tempTx.merchant || '',
-      paymentMethod: tempTx.paymentMode || 'CARD',
+      paymentMethod: isTxTransfer ? 'TRANSFER' : (tempTx.paymentMode || 'CARD'),
       isRecurring: false,
       isFavorite: false,
     };
@@ -168,7 +182,32 @@ export class SmsService {
         address: 'HDFCBK',
         date: now - 3600000 * 48, // 2 days ago
       },
+      {
+        id: 'mock_6',
+        body: 'HDFC Bank: Rs 5,000.00 debited for Transfer to ICICI Bank A/c xx8899 on 16-07-2026. Ref UPI/Self-Transfer.',
+        address: 'HDFCBK',
+        date: now - 1800000, // 30 mins ago
+      },
     ];
   }
 }
 export const smsServiceInstance = new SmsService();
+
+// Register window.simulateSMS helper for Browser Console testing on Web
+if (typeof window !== 'undefined') {
+  (window as any).simulateSMS = async (smsBody: string, address: string = 'HDFCBK') => {
+    console.log('🧪 [SMS Dev Simulator] Processing custom SMS:', smsBody);
+    const mockItem = {
+      id: `custom_web_${Date.now()}`,
+      body: smsBody,
+      address,
+      date: Date.now(),
+    };
+    const res = await smsServiceInstance.processSmsInbox([mockItem]);
+    console.log('✅ [SMS Dev Simulator] Result:', res);
+    const { useAppStore } = require('../../store/appStore');
+    await useAppStore.getState().refreshSmsData();
+    return res;
+  };
+}
+

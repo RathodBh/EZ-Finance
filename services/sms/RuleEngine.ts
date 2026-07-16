@@ -51,12 +51,16 @@ export class RuleEngine implements IRuleEngine {
       if (matchedRule.preferredAccountId) {
         result.matchedAccountId = matchedRule.preferredAccountId;
       }
+      if (matchedRule.isTransfer) {
+        result.isTransfer = true;
+        result.matchedToAccountId = matchedRule.targetAccountId || null;
+      }
     }
 
     // Determine status thresholds
     const isEngineEnabled = settings.isEnabled;
     if (isEngineEnabled) {
-      if (result.confidence >= settings.autoSaveThreshold && result.matchedCategoryId && result.matchedAccountId) {
+      if (result.confidence >= settings.autoSaveThreshold && (result.matchedCategoryId || result.isTransfer) && result.matchedAccountId) {
         result.autoSave = true;
         result.preFill = true;
         result.needsReview = false;
@@ -79,18 +83,24 @@ export class RuleEngine implements IRuleEngine {
     tempTx: any,
     decision: 'accepted' | 'edited' | 'rejected' | 'skipped',
     categoryId?: string,
-    accountId?: string
+    accountId?: string,
+    isTransfer?: boolean,
+    toAccountId?: string
   ): Promise<void> {
     const finalCategory = categoryId || tempTx.matchedCategoryId;
     const finalAccount = accountId || tempTx.matchedAccountId;
+    const finalIsTransfer = isTransfer ?? tempTx.isTransfer ?? false;
+    const finalToAccount = toAccountId || tempTx.toAccountId;
 
     // 1. Update/Create Bank Account Mapping Rule
     if (tempTx.bankName && tempTx.accountLast4 && finalAccount) {
       const existingAcctRule = await SmsRepository.findRuleByAccount(tempTx.bankName, tempTx.accountLast4);
       if (existingAcctRule) {
         // If user changed the account preference
-        if (existingAcctRule.preferredAccountId !== finalAccount) {
+        if (existingAcctRule.preferredAccountId !== finalAccount || existingAcctRule.isTransfer !== finalIsTransfer || existingAcctRule.targetAccountId !== finalToAccount) {
           existingAcctRule.preferredAccountId = finalAccount;
+          existingAcctRule.isTransfer = finalIsTransfer;
+          existingAcctRule.targetAccountId = finalToAccount;
           existingAcctRule.acceptedCount = 1;
           existingAcctRule.editedCount = 1;
           await SmsRepository.saveRule(existingAcctRule);
@@ -105,6 +115,8 @@ export class RuleEngine implements IRuleEngine {
           bankName: tempTx.bankName,
           accountLast4: tempTx.accountLast4,
           preferredAccountId: finalAccount,
+          isTransfer: finalIsTransfer,
+          targetAccountId: finalToAccount,
           acceptedCount: 1,
           confidence: 70, // Starter confidence
           isEnabled: true,
@@ -114,10 +126,9 @@ export class RuleEngine implements IRuleEngine {
     }
 
     // 2. Update/Create UPI ID Rule
-    if (tempTx.upiId && (finalCategory || finalAccount)) {
+    if (tempTx.upiId && (finalCategory || finalAccount || finalIsTransfer)) {
       const existingUpiRule = await SmsRepository.findRuleByUpi(tempTx.upiId);
       if (existingUpiRule) {
-        // If settings changed
         let statsUpdated = false;
         if (finalCategory && existingUpiRule.categoryId !== finalCategory) {
           existingUpiRule.categoryId = finalCategory;
@@ -125,6 +136,11 @@ export class RuleEngine implements IRuleEngine {
         }
         if (finalAccount && existingUpiRule.preferredAccountId !== finalAccount) {
           existingUpiRule.preferredAccountId = finalAccount;
+          statsUpdated = true;
+        }
+        if (existingUpiRule.isTransfer !== finalIsTransfer || existingUpiRule.targetAccountId !== finalToAccount) {
+          existingUpiRule.isTransfer = finalIsTransfer;
+          existingUpiRule.targetAccountId = finalToAccount;
           statsUpdated = true;
         }
 
@@ -143,6 +159,8 @@ export class RuleEngine implements IRuleEngine {
           upiId: tempTx.upiId,
           categoryId: finalCategory,
           preferredAccountId: finalAccount,
+          isTransfer: finalIsTransfer,
+          targetAccountId: finalToAccount,
           acceptedCount: 1,
           confidence: 60, // Initial confidence
           isEnabled: true,
@@ -152,7 +170,7 @@ export class RuleEngine implements IRuleEngine {
     }
 
     // 3. Update/Create Merchant Rule
-    if (tempTx.merchant && (finalCategory || finalAccount)) {
+    if (tempTx.merchant && (finalCategory || finalAccount || finalIsTransfer)) {
       const existingMerchantRule = await SmsRepository.findRuleByMerchant(tempTx.merchant);
       if (existingMerchantRule) {
         let statsUpdated = false;
@@ -162,6 +180,11 @@ export class RuleEngine implements IRuleEngine {
         }
         if (finalAccount && existingMerchantRule.preferredAccountId !== finalAccount) {
           existingMerchantRule.preferredAccountId = finalAccount;
+          statsUpdated = true;
+        }
+        if (existingMerchantRule.isTransfer !== finalIsTransfer || existingMerchantRule.targetAccountId !== finalToAccount) {
+          existingMerchantRule.isTransfer = finalIsTransfer;
+          existingMerchantRule.targetAccountId = finalToAccount;
           statsUpdated = true;
         }
 
@@ -180,6 +203,8 @@ export class RuleEngine implements IRuleEngine {
           merchantPattern: tempTx.merchant,
           categoryId: finalCategory,
           preferredAccountId: finalAccount,
+          isTransfer: finalIsTransfer,
+          targetAccountId: finalToAccount,
           acceptedCount: 1,
           confidence: 60, // Initial confidence
           isEnabled: true,

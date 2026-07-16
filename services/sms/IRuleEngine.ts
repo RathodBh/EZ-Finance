@@ -4,6 +4,8 @@ export interface RuleMatchResult {
   matchedAccountId: string | null;
   matchedCategoryId: string | null;
   matchedRuleId: string | null;
+  matchedToAccountId?: string | null;
+  isTransfer?: boolean;
   confidence: number; // 0-100
   autoSave: boolean;
   preFill: boolean;
@@ -16,6 +18,8 @@ export interface IRuleEngine {
     tempTx: any, 
     decision: 'accepted' | 'edited' | 'rejected' | 'skipped', 
     categoryId?: string, 
-    accountId?: string
+    accountId?: string,
+    isTransfer?: boolean,
+    toAccountId?: string
   ): Promise<void>;
 }

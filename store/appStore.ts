@@ -103,7 +103,7 @@ interface AppState {
   smsSettings: any | null;
   requestSmsPermission: () => Promise<boolean>;
   processSmsInbox: (mockSmsList?: any[]) => Promise<void>;
-  approveSmsTx: (id: string, categoryId: string, accountId: string) => Promise<void>;
+  approveSmsTx: (id: string, categoryId: string, accountId: string, isTransfer?: boolean, toAccountId?: string) => Promise<void>;
   skipSmsTx: (id: string) => Promise<void>;
   deleteSmsRule: (id: string) => Promise<void>;
   updateSmsSettings: (settings: any) => Promise<void>;
@@ -760,33 +760,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  approveSmsTx: async (id, categoryId, accountId) => {
+  approveSmsTx: async (id, categoryId, accountId, isTransfer, toAccountId) => {
     try {
       const pendingList = get().pendingSmsTransactions;
       const tempTx = pendingList.find(t => t.id === id);
       if (!tempTx) throw new Error('Transaction not found');
 
       // Promote to real transaction
-      await smsServiceInstance.promoteToRealTransaction(tempTx, categoryId, accountId);
+      await smsServiceInstance.promoteToRealTransaction(tempTx, categoryId, accountId, isTransfer, toAccountId);
 
       // Mark approved in repository
       await SmsRepository.markApproved(id);
 
       // Learn decision & update rules
-      const ruleId = tempTx.matchedRuleId;
-      if (ruleId) {
-        await SmsRepository.updateRuleStats(
-          ruleId, 
-          tempTx.matchedCategoryId === categoryId && tempTx.matchedAccountId === accountId ? 'accepted' : 'edited'
-        );
-      } else {
-        // Create new rules if not exists
-        const RuleEngineModule = require('../services/sms/RuleEngine').RuleEngine;
-        const ruleEngine = new RuleEngineModule();
-        await ruleEngine.learnFromDecision(tempTx, 'accepted', categoryId, accountId);
-      }
+      const RuleEngineModule = require('../services/sms/RuleEngine').RuleEngine;
+      const ruleEngine = new RuleEngineModule();
+      await ruleEngine.learnFromDecision(tempTx, 'accepted', categoryId, accountId, isTransfer, toAccountId);
 
-      get().showToast('Transaction approved and saved!', 'success');
+      get().showToast(isTransfer ? 'Self Transfer approved & saved!' : 'Transaction approved and saved!', 'success');
       
       // Refresh all state
       await get().refreshSmsData();

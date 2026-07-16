@@ -1,11 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert, Platform, TouchableOpacity } from 'react-native';
-import { Text, Card, Button, Badge, IconButton, List } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, Alert, Platform, TouchableOpacity, TextInput } from 'react-native';
+import { Text, Card, Button, Badge, IconButton, List, Switch } from 'react-native-paper';
 import { useAppStore } from '../store/appStore';
 import { ThemeColors } from '../styles/theme';
 import { formatCurrency } from '../services/utils';
 import { useRouter } from 'expo-router';
 import SlideUpModal from '../components/SlideUpModal';
+
+const PRESET_TEST_SMS = [
+  { bank: 'HDFC Bank', text: 'Alert: Your HDFC Bank Debit Card ending in 4321 was spent at Swiggy for Rs. 450.00 on 16-07-2026. Avl Bal: Rs. 38,200.', sender: 'HDFCBK' },
+  { bank: 'SBI UPI', text: 'SBI SMS: Dear Customer, your A/c ending 1234 has been debited by Rs 1,499.00 on 16-07-26 via UPI to Amazon@okhdfc. Ref 601293810.', sender: 'SBIINB' },
+  { bank: 'ICICI Credit', text: 'Transaction Alert: INR 2,500.00 credited to ICICI Bank A/c xx8899 on 16/07/26 from friend@okaxis. Ref: 9812739.', sender: 'ICICIB' },
+  { bank: 'Kotak UPI', text: 'Kotak Bank Info: Rs. 280.00 spent at Starbucks via UPI. Ref No: 1092837192. Avl Balance: Rs. 15,290.00.', sender: 'KOTAKB' },
+  { bank: 'Self Transfer', text: 'HDFC Bank: Rs 5,000.00 debited for Transfer to ICICI Bank A/c xx8899 on 16-07-2026. Ref UPI/Self-Transfer.', sender: 'HDFCBK' },
+];
 
 export default function SmsTransactionsScreen() {
   const router = useRouter();
@@ -20,16 +28,25 @@ export default function SmsTransactionsScreen() {
     approveSmsTx,
     skipSmsTx,
     refreshSmsData,
+    showToast,
   } = useAppStore();
 
   const activeColors = ThemeColors[theme];
 
   // Temp state for editing account/category selections on cards before approving
-  const [selections, setSelections] = useState<Record<string, { accountId: string; categoryId: string }>>({});
+  const [selections, setSelections] = useState<
+    Record<string, { accountId: string; categoryId: string; isTransfer: boolean; toAccountId: string }>
+  >({});
 
   // SlideUpModal active selection states
   const [activeTxIdForAcc, setActiveTxIdForAcc] = useState<string | null>(null);
+  const [activeTxIdForToAcc, setActiveTxIdForToAcc] = useState<string | null>(null);
   const [activeTxIdForCat, setActiveTxIdForCat] = useState<string | null>(null);
+
+  // Custom SMS Tester Modal states
+  const [showCustomSmsModal, setShowCustomSmsModal] = useState(false);
+  const [customSmsInput, setCustomSmsInput] = useState('');
+  const [customSenderInput, setCustomSenderInput] = useState('HDFCBK');
 
   useEffect(() => {
     refreshSmsData();
@@ -37,22 +54,68 @@ export default function SmsTransactionsScreen() {
 
   // Sync state selections when pending list changes
   useEffect(() => {
-    const initialSelections: Record<string, { accountId: string; categoryId: string }> = {};
+    const initialSelections: Record<
+      string,
+      { accountId: string; categoryId: string; isTransfer: boolean; toAccountId: string }
+    > = {};
+
     pendingSmsTransactions.forEach((tx) => {
       const defaultAcc = tx.matchedAccountId || (accounts.length > 0 ? accounts[0].id : '');
-      const defaultCat = tx.matchedCategoryId || (categories.length > 0 ? categories[0].id : '');
+      const defaultToAcc =
+        tx.toAccountId ||
+        (accounts.length > 1
+          ? accounts.find((a) => a.id !== defaultAcc)?.id || accounts[1]?.id || ''
+          : '');
+
+      // Filter category options based on DEBIT vs CREDIT
+      const matchingTypeCats = categories.filter((c) => {
+        if (tx.transactionType === 'DEBIT') return c.type?.toUpperCase() === 'EXPENSE';
+        if (tx.transactionType === 'CREDIT') return c.type?.toUpperCase() === 'INCOME';
+        return true;
+      });
+
+      const matchedCatExists = matchingTypeCats.some((c) => c.id === tx.matchedCategoryId);
+      const defaultCat = matchedCatExists
+        ? tx.matchedCategoryId
+        : matchingTypeCats.length > 0
+        ? matchingTypeCats[0].id
+        : categories.length > 0
+        ? categories[0].id
+        : '';
+
       initialSelections[tx.id] = {
         accountId: defaultAcc,
         categoryId: defaultCat,
+        isTransfer: !!tx.isTransfer,
+        toAccountId: defaultToAcc,
       };
     });
     setSelections(initialSelections);
   }, [pendingSmsTransactions, accounts, categories]);
 
+  const activeTxForCat = pendingSmsTransactions.find((tx) => tx.id === activeTxIdForCat);
+  const availableCategories = categories.filter((cat) => {
+    if (!activeTxForCat) return true;
+    if (activeTxForCat.transactionType === 'DEBIT') {
+      return cat.type?.toUpperCase() === 'EXPENSE';
+    }
+    if (activeTxForCat.transactionType === 'CREDIT') {
+      return cat.type?.toUpperCase() === 'INCOME';
+    }
+    return true;
+  });
+
   const handleSelectAccount = (txId: string, accountId: string) => {
     setSelections((prev) => ({
       ...prev,
       [txId]: { ...prev[txId], accountId },
+    }));
+  };
+
+  const handleSelectToAccount = (txId: string, toAccountId: string) => {
+    setSelections((prev) => ({
+      ...prev,
+      [txId]: { ...prev[txId], toAccountId },
     }));
   };
 
@@ -63,13 +126,45 @@ export default function SmsTransactionsScreen() {
     }));
   };
 
+  const handleToggleTransfer = (txId: string, isTransfer: boolean) => {
+    setSelections((prev) => {
+      const current = prev[txId] || {};
+      const fromAcc = current.accountId || (accounts.length > 0 ? accounts[0].id : '');
+      const toAcc =
+        current.toAccountId ||
+        (accounts.length > 1 ? accounts.find((a) => a.id !== fromAcc)?.id || '' : '');
+      return {
+        ...prev,
+        [txId]: {
+          ...current,
+          isTransfer,
+          toAccountId: toAcc,
+        },
+      };
+    });
+  };
+
   const handleApprove = async (tx: any) => {
     const sel = selections[tx.id];
-    if (!sel || !sel.accountId || !sel.categoryId) {
-      Alert.alert('Required Fields', 'Please select both an Account and Category.');
-      return;
+    if (!sel) return;
+
+    if (sel.isTransfer) {
+      if (!sel.accountId || !sel.toAccountId) {
+        Alert.alert('Required Fields', 'Please select both From Account and To Account for Self Transfer.');
+        return;
+      }
+      if (sel.accountId === sel.toAccountId) {
+        Alert.alert('Invalid Selection', 'From Account and To Account must be different for a self transfer.');
+        return;
+      }
+      await approveSmsTx(tx.id, 'transfer_cat_id', sel.accountId, true, sel.toAccountId);
+    } else {
+      if (!sel.accountId || !sel.categoryId) {
+        Alert.alert('Required Fields', 'Please select both an Account and Category.');
+        return;
+      }
+      await approveSmsTx(tx.id, sel.categoryId, sel.accountId, false);
     }
-    await approveSmsTx(tx.id, sel.categoryId, sel.accountId);
   };
 
   const handleBulkApproveHighConfidence = async () => {
@@ -102,6 +197,20 @@ export default function SmsTransactionsScreen() {
         await approveSmsTx(tx.id, sel.categoryId, sel.accountId);
       }
     }
+  };
+
+  const handleProcessCustomSms = async (text: string, sender: string) => {
+    if (!text.trim()) return;
+    await processSmsInbox([
+      {
+        id: `web_test_${Date.now()}`,
+        body: text.trim(),
+        address: sender || 'HDFCBK',
+        date: Date.now(),
+      },
+    ]);
+    setShowCustomSmsModal(false);
+    setCustomSmsInput('');
   };
 
   const getConfidenceColor = (score: number) => {
@@ -172,21 +281,32 @@ export default function SmsTransactionsScreen() {
             style={[styles.actionBtn, { backgroundColor: activeColors.primary }]}
             labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
           >
-            Scan Inbox SMS
+            {Platform.OS === 'web' ? 'Simulate 5 Bank SMS' : 'Scan Inbox SMS'}
           </Button>
 
-          {pendingSmsTransactions.length > 0 && (
+          <Button
+            mode="outlined"
+            icon="card-text-outline"
+            onPress={() => setShowCustomSmsModal(true)}
+            style={[styles.actionBtnOutline, { borderColor: activeColors.primary }]}
+            labelStyle={{ color: activeColors.primary, fontWeight: 'bold' }}
+          >
+            Paste SMS
+          </Button>
+        </View>
+
+        {pendingSmsTransactions.length > 0 && (
+          <View style={{ marginBottom: 16 }}>
             <Button
-              mode="outlined"
+              mode="contained-tonal"
               icon="checkbox-multiple-marked-outline"
               onPress={handleBulkApproveHighConfidence}
-              style={[styles.actionBtnOutline, { borderColor: activeColors.primary }]}
-              labelStyle={{ color: activeColors.primary, fontWeight: 'bold' }}
+              labelStyle={{ fontWeight: 'bold' }}
             >
-              {"Approve High (>=80%)"}
+              Approve High Confidence (≥80%)
             </Button>
-          )}
-        </View>
+          </View>
+        )}
 
         {/* Empty State */}
         {pendingSmsTransactions.length === 0 ? (
@@ -194,17 +314,26 @@ export default function SmsTransactionsScreen() {
             <IconButton icon="message-draw" size={64} iconColor={activeColors.border} />
             <Text style={[styles.emptyTitle, { color: activeColors.text }]}>All Caught Up!</Text>
             <Text style={[styles.emptySubtitle, { color: activeColors.textSecondary }]}>
-              There are no bank transaction messages in your review queue. Scan your inbox or simulate messages to start.
+              There are no bank transaction messages in your review queue. Scan simulated messages or paste your own SMS text to test.
             </Text>
-            <Button
-              mode="contained-tonal"
-              icon="play-circle-outline"
-              onPress={() => processSmsInbox()}
-              style={{ marginTop: 16 }}
-              labelStyle={{ fontWeight: 'bold' }}
-            >
-              Test with Simulated SMS
-            </Button>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+              <Button
+                mode="contained"
+                icon="play-circle-outline"
+                onPress={() => processSmsInbox()}
+                labelStyle={{ fontWeight: 'bold' }}
+              >
+                Load Preset Mock SMS
+              </Button>
+              <Button
+                mode="outlined"
+                icon="pencil-outline"
+                onPress={() => setShowCustomSmsModal(true)}
+                labelStyle={{ fontWeight: 'bold' }}
+              >
+                Paste Custom SMS
+              </Button>
+            </View>
           </View>
         ) : (
           <View>
@@ -277,34 +406,81 @@ export default function SmsTransactionsScreen() {
                       </Text>
                     </View>
 
-                    {/* Form Selectors */}
-                    <View style={styles.formRow}>
-                      <View style={{ flex: 1, marginRight: 8 }}>
-                        <Text style={[styles.formLabel, { color: activeColors.textSecondary }]}>Account</Text>
-                        <TouchableOpacity
-                          onPress={() => setActiveTxIdForAcc(tx.id)}
-                          style={[styles.selectBox, { borderColor: activeColors.border, backgroundColor: theme === 'dark' ? '#121212' : '#fafafa' }]}
-                        >
-                          <Text style={{ color: activeColors.text, fontSize: 13 }} numberOfLines={1}>
-                            {accounts.find((a) => a.id === currentSel.accountId)?.name || 'Select Account'}
-                          </Text>
-                          <IconButton icon="chevron-down" iconColor={activeColors.textSecondary} size={16} style={{ margin: 0 }} />
-                        </TouchableOpacity>
-                      </View>
-
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.formLabel, { color: activeColors.textSecondary }]}>Category</Text>
-                        <TouchableOpacity
-                          onPress={() => setActiveTxIdForCat(tx.id)}
-                          style={[styles.selectBox, { borderColor: activeColors.border, backgroundColor: theme === 'dark' ? '#121212' : '#fafafa' }]}
-                        >
-                          <Text style={{ color: activeColors.text, fontSize: 13 }} numberOfLines={1}>
-                            {categories.find((c) => c.id === currentSel.categoryId)?.name || 'Select Category'}
-                          </Text>
-                          <IconButton icon="chevron-down" iconColor={activeColors.textSecondary} size={16} style={{ margin: 0 }} />
-                        </TouchableOpacity>
+                    {/* Self Transfer Toggle */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, marginBottom: 8, paddingHorizontal: 2 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: activeColors.text }}>
+                        🔄 Self Transfer
+                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 12, color: currentSel.isTransfer ? activeColors.primary : activeColors.textSecondary, marginRight: 6, fontWeight: currentSel.isTransfer ? '700' : '400' }}>
+                          {currentSel.isTransfer ? 'ON' : 'OFF'}
+                        </Text>
+                        <Switch
+                          value={!!currentSel.isTransfer}
+                          onValueChange={(val) => handleToggleTransfer(tx.id, val)}
+                          color={activeColors.primary}
+                        />
                       </View>
                     </View>
+
+                    {/* Form Selectors */}
+                    {currentSel.isTransfer ? (
+                      <View style={styles.formRow}>
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <Text style={[styles.formLabel, { color: activeColors.textSecondary }]}>From Account</Text>
+                          <TouchableOpacity
+                            onPress={() => setActiveTxIdForAcc(tx.id)}
+                            style={[styles.selectBox, { borderColor: activeColors.border, backgroundColor: theme === 'dark' ? '#121212' : '#fafafa' }]}
+                          >
+                            <Text style={{ color: activeColors.text, fontSize: 13 }} numberOfLines={1}>
+                              {accounts.find((a) => a.id === currentSel.accountId)?.name || 'Select From Account'}
+                            </Text>
+                            <IconButton icon="chevron-down" iconColor={activeColors.textSecondary} size={16} style={{ margin: 0 }} />
+                          </TouchableOpacity>
+                        </View>
+
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.formLabel, { color: activeColors.textSecondary }]}>To Account</Text>
+                          <TouchableOpacity
+                            onPress={() => setActiveTxIdForToAcc(tx.id)}
+                            style={[styles.selectBox, { borderColor: activeColors.border, backgroundColor: theme === 'dark' ? '#121212' : '#fafafa' }]}
+                          >
+                            <Text style={{ color: activeColors.text, fontSize: 13 }} numberOfLines={1}>
+                              {accounts.find((a) => a.id === currentSel.toAccountId)?.name || 'Select To Account'}
+                            </Text>
+                            <IconButton icon="chevron-down" iconColor={activeColors.textSecondary} size={16} style={{ margin: 0 }} />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={styles.formRow}>
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <Text style={[styles.formLabel, { color: activeColors.textSecondary }]}>Account</Text>
+                          <TouchableOpacity
+                            onPress={() => setActiveTxIdForAcc(tx.id)}
+                            style={[styles.selectBox, { borderColor: activeColors.border, backgroundColor: theme === 'dark' ? '#121212' : '#fafafa' }]}
+                          >
+                            <Text style={{ color: activeColors.text, fontSize: 13 }} numberOfLines={1}>
+                              {accounts.find((a) => a.id === currentSel.accountId)?.name || 'Select Account'}
+                            </Text>
+                            <IconButton icon="chevron-down" iconColor={activeColors.textSecondary} size={16} style={{ margin: 0 }} />
+                          </TouchableOpacity>
+                        </View>
+
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.formLabel, { color: activeColors.textSecondary }]}>Category</Text>
+                          <TouchableOpacity
+                            onPress={() => setActiveTxIdForCat(tx.id)}
+                            style={[styles.selectBox, { borderColor: activeColors.border, backgroundColor: theme === 'dark' ? '#121212' : '#fafafa' }]}
+                          >
+                            <Text style={{ color: activeColors.text, fontSize: 13 }} numberOfLines={1}>
+                              {categories.find((c) => c.id === currentSel.categoryId)?.name || 'Select Category'}
+                            </Text>
+                            <IconButton icon="chevron-down" iconColor={activeColors.textSecondary} size={16} style={{ margin: 0 }} />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
                   </Card.Content>
 
                   <Card.Actions style={[styles.cardActions, { borderTopColor: activeColors.border }]}>
@@ -333,7 +509,7 @@ export default function SmsTransactionsScreen() {
         )}
       </ScrollView>
 
-      {/* Account SlideUpModal Picker */}
+      {/* Account / From Account SlideUpModal Picker */}
       <SlideUpModal
         visible={activeTxIdForAcc !== null}
         onClose={() => setActiveTxIdForAcc(null)}
@@ -341,7 +517,9 @@ export default function SmsTransactionsScreen() {
         indicatorColor={activeColors.border}
       >
         <View style={{ padding: 20, paddingBottom: 40 }}>
-          <Text style={[styles.modalTitle, { color: activeColors.text }]}>Select Account</Text>
+          <Text style={[styles.modalTitle, { color: activeColors.text }]}>
+            {activeTxIdForAcc && selections[activeTxIdForAcc]?.isTransfer ? 'Select From Account' : 'Select Account'}
+          </Text>
           <ScrollView>
             {accounts.map((acc) => (
               <List.Item
@@ -363,6 +541,42 @@ export default function SmsTransactionsScreen() {
         </View>
       </SlideUpModal>
 
+      {/* To Account SlideUpModal Picker */}
+      <SlideUpModal
+        visible={activeTxIdForToAcc !== null}
+        onClose={() => setActiveTxIdForToAcc(null)}
+        backgroundColor={activeColors.surface}
+        indicatorColor={activeColors.border}
+      >
+        <View style={{ padding: 20, paddingBottom: 40 }}>
+          <Text style={[styles.modalTitle, { color: activeColors.text }]}>Select To Account</Text>
+          <ScrollView>
+            {accounts
+              .filter((acc) => {
+                if (!activeTxIdForToAcc) return true;
+                const fromAccId = selections[activeTxIdForToAcc]?.accountId;
+                return acc.id !== fromAccId;
+              })
+              .map((acc) => (
+                <List.Item
+                  key={acc.id}
+                  title={acc.name}
+                  description={`${acc.type} • ${formatCurrency(acc.balance, 'INR')}`}
+                  left={(props) => <List.Icon {...props} icon={acc.icon || 'wallet'} color={acc.color || activeColors.primary} />}
+                  onPress={() => {
+                    if (activeTxIdForToAcc) {
+                      handleSelectToAccount(activeTxIdForToAcc, acc.id);
+                    }
+                    setActiveTxIdForToAcc(null);
+                  }}
+                  titleStyle={{ color: activeColors.text }}
+                  descriptionStyle={{ color: activeColors.textSecondary }}
+                />
+              ))}
+          </ScrollView>
+        </View>
+      </SlideUpModal>
+
       {/* Category SlideUpModal Picker */}
       <SlideUpModal
         visible={activeTxIdForCat !== null}
@@ -371,9 +585,15 @@ export default function SmsTransactionsScreen() {
         indicatorColor={activeColors.border}
       >
         <View style={{ padding: 20, paddingBottom: 40 }}>
-          <Text style={[styles.modalTitle, { color: activeColors.text }]}>Select Category</Text>
+          <Text style={[styles.modalTitle, { color: activeColors.text }]}>
+            {activeTxForCat?.transactionType === 'DEBIT'
+              ? 'Select Expense Category'
+              : activeTxForCat?.transactionType === 'CREDIT'
+              ? 'Select Income Category'
+              : 'Select Category'}
+          </Text>
           <ScrollView>
-            {categories.map((cat) => (
+            {availableCategories.map((cat) => (
               <List.Item
                 key={cat.id}
                 title={cat.name}
@@ -390,6 +610,100 @@ export default function SmsTransactionsScreen() {
               />
             ))}
           </ScrollView>
+        </View>
+      </SlideUpModal>
+
+      {/* Custom SMS Tester SlideUpModal */}
+      <SlideUpModal
+        visible={showCustomSmsModal}
+        onClose={() => setShowCustomSmsModal(false)}
+        backgroundColor={activeColors.surface}
+        indicatorColor={activeColors.border}
+      >
+        <View style={{ padding: 20, paddingBottom: 40 }}>
+          <Text style={[styles.modalTitle, { color: activeColors.text }]}>🧪 Test Custom SMS Parser</Text>
+          
+          <Text style={{ fontSize: 12, color: activeColors.textSecondary, marginBottom: 8, fontWeight: 'bold' }}>
+            QUICK PRESETS (Tap to test):
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+            {PRESET_TEST_SMS.map((preset, idx) => (
+              <TouchableOpacity
+                key={idx}
+                onPress={() => {
+                  setCustomSmsInput(preset.text);
+                  setCustomSenderInput(preset.sender);
+                }}
+                style={{
+                  backgroundColor: theme === 'dark' ? '#2c2c2e' : '#e5e5ea',
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  marginRight: 8,
+                }}
+              >
+                <Text style={{ color: activeColors.text, fontSize: 12, fontWeight: 'bold' }}>{preset.bank}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          <Text style={{ fontSize: 12, color: activeColors.textSecondary, marginBottom: 4, fontWeight: 'bold' }}>
+            Sender Header ID:
+          </Text>
+          <TextInput
+            value={customSenderInput}
+            onChangeText={setCustomSenderInput}
+            placeholder="e.g. HDFCBK, SBIINB, ICICIB"
+            placeholderTextColor={activeColors.textSecondary}
+            style={{
+              borderWidth: 1,
+              borderColor: activeColors.border,
+              borderRadius: 8,
+              padding: 10,
+              color: activeColors.text,
+              backgroundColor: theme === 'dark' ? '#121212' : '#fafafa',
+              marginBottom: 12,
+            }}
+          />
+
+          <Text style={{ fontSize: 12, color: activeColors.textSecondary, marginBottom: 4, fontWeight: 'bold' }}>
+            Raw SMS Message Text:
+          </Text>
+          <TextInput
+            multiline
+            numberOfLines={4}
+            value={customSmsInput}
+            onChangeText={setCustomSmsInput}
+            placeholder="Paste or type any bank SMS notification text..."
+            placeholderTextColor={activeColors.textSecondary}
+            style={{
+              borderWidth: 1,
+              borderColor: activeColors.border,
+              borderRadius: 8,
+              padding: 12,
+              height: 100,
+              color: activeColors.text,
+              backgroundColor: theme === 'dark' ? '#121212' : '#fafafa',
+              textAlignVertical: 'top',
+              marginBottom: 16,
+            }}
+          />
+
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+            <Button mode="text" onPress={() => setShowCustomSmsModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              mode="contained"
+              icon="play"
+              onPress={() => handleProcessCustomSms(customSmsInput, customSenderInput)}
+              disabled={!customSmsInput.trim()}
+              style={{ backgroundColor: activeColors.primary }}
+              labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
+            >
+              Parse SMS
+            </Button>
+          </View>
         </View>
       </SlideUpModal>
     </View>
