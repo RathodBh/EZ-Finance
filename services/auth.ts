@@ -195,11 +195,26 @@ export const AuthService = {
 
     try {
       await GoogleSignin.hasPlayServices();
-      const userInfo = await GoogleSignin.signIn();
-      const session = this.mapGoogleUser(userInfo);
+      const response = await GoogleSignin.signIn();
+
+      if (response && response.type === 'cancelled') {
+        throw new Error('Sign in was cancelled');
+      }
+
+      const session = this.mapGoogleUser(response);
       
       // Persist session locally
       await this.persistSession(session);
+
+      // Persist access token if available
+      try {
+        const tokens = await GoogleSignin.getTokens();
+        if (tokens?.accessToken) {
+          await setSecureItem('googleAccessToken', tokens.accessToken);
+        }
+      } catch (tokenErr) {
+        console.warn('Failed to retrieve native tokens on sign in:', tokenErr);
+      }
 
       return session;
     } catch (error: any) {
@@ -237,11 +252,12 @@ export const AuthService = {
   },
 
   mapGoogleUser(googleUser: any): UserSession {
+    const userObj = googleUser?.data?.user || googleUser?.user || googleUser;
     return {
-      id: googleUser.user.id,
-      email: googleUser.user.email,
-      name: googleUser.user.name || 'User',
-      photoUrl: googleUser.user.photo || null,
+      id: userObj?.id || userObj?.sub || '',
+      email: userObj?.email || '',
+      name: userObj?.name || 'User',
+      photoUrl: userObj?.photo || userObj?.photoUrl || userObj?.picture || null,
     };
   },
 
