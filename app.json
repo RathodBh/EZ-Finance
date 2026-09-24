@@ -11,12 +11,21 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.ezfinance.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
+      "permissions": [
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "POST_NOTIFICATIONS",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ],
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -32,7 +41,17 @@
       ],
       "expo-secure-store",
       "expo-sharing",
-      "expo-document-picker"
-    ]
+      "expo-document-picker",
+      "expo-local-authentication",
+      "expo-notifications",
+      "@react-native-google-signin/google-signin"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "4364acc0-bb84-47ce-afcb-9b6e715bf056"
+      }
+    },
+    "owner": "bhavesh0007"
   }
 }
