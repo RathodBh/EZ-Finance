@@ -193,20 +193,32 @@ export const AuthService = {
       throw new Error('Google Sign-In SDK is not loaded on this native device');
     }
 
+    const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    if (!webClientId || !webClientId.trim() || webClientId.includes('your-google-web-client-id')) {
+      const keyErr: any = new Error('Google Web Client ID is missing. Please set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID in your .env file.');
+      keyErr.code = 'KEY_NOT_FOUND';
+      throw keyErr;
+    }
+
     try {
-      await GoogleSignin.hasPlayServices();
+      GoogleSignin.configure({
+        scopes: ['https://www.googleapis.com/auth/drive.appdata'],
+        webClientId: webClientId.trim(),
+        iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+      });
+
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       const response = await GoogleSignin.signIn();
 
       if (response && response.type === 'cancelled') {
-        throw new Error('Sign in was cancelled');
+        const cancelErr: any = new Error('Sign in was cancelled');
+        cancelErr.code = 'SIGN_IN_CANCELLED';
+        throw cancelErr;
       }
 
       const session = this.mapGoogleUser(response);
-      
-      // Persist session locally
       await this.persistSession(session);
 
-      // Persist access token if available
       try {
         const tokens = await GoogleSignin.getTokens();
         if (tokens?.accessToken) {
@@ -219,6 +231,24 @@ export const AuthService = {
       return session;
     } catch (error: any) {
       console.error('Google Sign-In failed:', error);
+
+
+      if (
+        error?.code === 'SIGN_IN_CANCELLED' ||
+        error?.code === '12501' ||
+        error?.message?.toLowerCase().includes('cancel')
+      ) {
+        const cancelErr: any = new Error('Sign in was cancelled');
+        cancelErr.code = 'SIGN_IN_CANCELLED';
+        throw cancelErr;
+      }
+      if (error?.message?.includes('DEVELOPER_ERROR') || error?.code === '10') {
+        const devErr: any = new Error(
+          'Google Sign-In config error (DEVELOPER_ERROR): Check that your SHA-1 fingerprint and Web Client ID are registered in Google Cloud Console.'
+        );
+        devErr.code = 'DEVELOPER_ERROR';
+        throw devErr;
+      }
       throw error;
     }
   },

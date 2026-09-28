@@ -244,7 +244,16 @@ export default function MoreScreen() {
       showToast("Google account connected successfully and data migrated!", "success");
     } catch (err: any) {
       console.error("Failed to connect Google account:", err);
-      showToast("Unable to authenticate with Google. Please try again.", "error");
+      if (err?.code === 'SIGN_IN_CANCELLED' || err?.message?.toLowerCase().includes('cancel')) {
+        return;
+      }
+      if (err?.code === 'KEY_NOT_FOUND') {
+        showToast("Google Web Client ID key not found. Please check .env file.", "error");
+      } else if (err?.code === 'DEVELOPER_ERROR' || err?.message?.includes('DEVELOPER_ERROR')) {
+        showToast("Google Sign-In config error (DEVELOPER_ERROR): Check SHA-1 & Web Client ID.", "error");
+      } else {
+        showToast(err?.message || "Unable to authenticate with Google. Please try again.", "error");
+      }
     }
   };
 

@@ -54,7 +54,16 @@ export default function OnboardingScreen() {
       setStep('CURRENCY_SELECT');
     } catch (e: any) {
       console.error("Google Sign-In Error:", e);
-      showToast("Unable to authenticate with Google. Please try again.", "error");
+      if (e?.code === 'SIGN_IN_CANCELLED' || e?.message?.toLowerCase().includes('cancel')) {
+        return;
+      }
+      if (e?.code === 'KEY_NOT_FOUND') {
+        showToast("Google Web Client ID key not found. Please check .env file.", "error");
+      } else if (e?.code === 'DEVELOPER_ERROR' || e?.message?.includes('DEVELOPER_ERROR')) {
+        showToast("Google Sign-In config error (DEVELOPER_ERROR): Check SHA-1 & Web Client ID.", "error");
+      } else {
+        showToast(e?.message || "Unable to authenticate with Google. Please try again.", "error");
+      }
     } finally {
       setGoogleLoading(false);
     }
