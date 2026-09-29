@@ -1094,51 +1094,38 @@ export const SmsRepository = {
   },
 
   async findRuleByMerchant(merchant: string) {
+    if (!merchant) return null;
     const term = merchant.trim().toLowerCase();
-    if (Platform.OS === 'web') {
-      return getWebList('sms_rules').find(
-        r => r.ruleType === 'MERCHANT' && r.merchantPattern?.toLowerCase() === term
-      ) || null;
-    }
-    return db.query.smsRules.findFirst({
-      where: and(
-        eq(schema.smsRules.ruleType, 'MERCHANT'),
-        sql`LOWER(${schema.smsRules.merchantPattern}) = ${term}`
-      )
+    const rules = await this.getRules();
+    return rules.find((r: any) => {
+      if (r.ruleType !== 'MERCHANT' || !r.isEnabled || !r.merchantPattern) return false;
+      const pattern = r.merchantPattern.trim().toLowerCase();
+      return pattern === term || term.includes(pattern) || pattern.includes(term);
     }) || null;
   },
 
   async findRuleByUpi(upiId: string) {
+    if (!upiId) return null;
     const term = upiId.trim().toLowerCase();
-    if (Platform.OS === 'web') {
-      return getWebList('sms_rules').find(
-        r => r.ruleType === 'UPI' && r.upiId?.toLowerCase() === term
-      ) || null;
-    }
-    return db.query.smsRules.findFirst({
-      where: and(
-        eq(schema.smsRules.ruleType, 'UPI'),
-        sql`LOWER(${schema.smsRules.upiId}) = ${term}`
-      )
+    const rules = await this.getRules();
+    return rules.find((r: any) => {
+      if (r.ruleType !== 'UPI' || !r.isEnabled || !r.upiId) return false;
+      const pattern = r.upiId.trim().toLowerCase();
+      return pattern === term || term.startsWith(pattern) || pattern.startsWith(term);
     }) || null;
   },
 
   async findRuleByAccount(bankName: string, last4: string) {
+    if (!bankName || !last4) return null;
     const bank = bankName.trim().toLowerCase();
     const num = last4.trim();
-    if (Platform.OS === 'web') {
-      return getWebList('sms_rules').find(
-        r => r.ruleType === 'ACCOUNT' && 
-             r.bankName?.toLowerCase() === bank && 
-             r.accountLast4 === num
-      ) || null;
-    }
-    return db.query.smsRules.findFirst({
-      where: and(
-        eq(schema.smsRules.ruleType, 'ACCOUNT'),
-        sql`LOWER(${schema.smsRules.bankName}) = ${bank}`,
-        eq(schema.smsRules.accountLast4, num)
-      )
+    const rules = await this.getRules();
+    return rules.find((r: any) => {
+      if (r.ruleType !== 'ACCOUNT' || !r.isEnabled) return false;
+      const rNum = (r.accountLast4 || '').trim();
+      if (rNum !== num) return false;
+      const rBank = (r.bankName || '').trim().toLowerCase();
+      return rBank === bank || rBank.includes(bank) || bank.includes(rBank);
     }) || null;
   },
 
@@ -1195,16 +1182,16 @@ export const SmsRepository = {
       const idx = list.findIndex(r => r.id === ruleId);
       if (idx !== -1) {
         const r = list[idx];
-        const totalObservations = r.acceptedCount + r.autoSavedCount + r.editedCount + r.rejectedCount;
-        if (totalObservations < 2) {
-          r.confidence = 0; // Not enough data to be confident yet
-        } else {
-          // formula: (accepted + autoSaved) * 100 / (accepted + autoSaved + edited * 2 + rejected * 3)
-          const positive = r.acceptedCount + r.autoSavedCount;
-          const penalty = (r.editedCount * 2) + (r.rejectedCount * 3);
-          const rawConf = (positive * 100) / (positive + penalty);
-          r.confidence = Math.max(0, Math.min(100, Math.round(rawConf)));
+        const positive = (r.acceptedCount || 0) + (r.autoSavedCount || 0);
+        const penalty = ((r.editedCount || 0) * 2) + ((r.rejectedCount || 0) * 3);
+        const totalObservations = positive + (r.editedCount || 0) + (r.rejectedCount || 0);
+        let conf = 0;
+        if (totalObservations >= 2) {
+          conf = Math.round((positive * 100) / (positive + penalty));
+        } else if (totalObservations === 1 && penalty === 0) {
+          conf = r.ruleType === 'ACCOUNT' ? 70 : 60;
         }
+        r.confidence = Math.max(0, Math.min(100, conf));
         saveWebList('sms_rules', list);
       }
       return;
@@ -1213,14 +1200,16 @@ export const SmsRepository = {
     const r = await db.query.smsRules.findFirst({ where: eq(schema.smsRules.id, ruleId) });
     if (!r) return;
 
-    const totalObservations = r.acceptedCount + r.autoSavedCount + r.editedCount + r.rejectedCount;
+    const positive = (r.acceptedCount || 0) + (r.autoSavedCount || 0);
+    const penalty = ((r.editedCount || 0) * 2) + ((r.rejectedCount || 0) * 3);
+    const totalObservations = positive + (r.editedCount || 0) + (r.rejectedCount || 0);
     let confidence = 0;
     if (totalObservations >= 2) {
-      const positive = r.acceptedCount + r.autoSavedCount;
-      const penalty = (r.editedCount * 2) + (r.rejectedCount * 3);
-      const rawConf = (positive * 100) / (positive + penalty);
-      confidence = Math.max(0, Math.min(100, Math.round(rawConf)));
+      confidence = Math.round((positive * 100) / (positive + penalty));
+    } else if (totalObservations === 1 && penalty === 0) {
+      confidence = r.ruleType === 'ACCOUNT' ? 70 : 60;
     }
+    confidence = Math.max(0, Math.min(100, confidence));
 
     await db.update(schema.smsRules)
       .set({ confidence, updatedAt: Date.now() })

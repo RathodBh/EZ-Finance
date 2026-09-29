@@ -17,10 +17,22 @@ export class RuleEngine implements IRuleEngine {
     };
 
     // 1. MATCH ACCOUNT (Bank + Last 4)
+    let acctRule: any = null;
     if (parsed.bankName && parsed.accountLast4) {
-      const acctRule = await SmsRepository.findRuleByAccount(parsed.bankName, parsed.accountLast4);
-      if (acctRule && acctRule.isEnabled && acctRule.preferredAccountId) {
-        result.matchedAccountId = acctRule.preferredAccountId;
+      acctRule = await SmsRepository.findRuleByAccount(parsed.bankName, parsed.accountLast4);
+      if (acctRule && acctRule.isEnabled) {
+        if (acctRule.preferredAccountId) {
+          result.matchedAccountId = acctRule.preferredAccountId;
+        }
+        if (acctRule.isTransfer) {
+          result.isTransfer = true;
+          result.matchedToAccountId = acctRule.targetAccountId || null;
+        }
+        if (acctRule.categoryId) {
+          result.matchedCategoryId = acctRule.categoryId;
+        }
+        result.matchedRuleId = acctRule.id;
+        result.confidence = acctRule.confidence || 0;
       }
     }
 
@@ -33,9 +45,10 @@ export class RuleEngine implements IRuleEngine {
       }
     }
 
-    // 3. MATCH BY MERCHANT
-    if (!matchedRule && parsed.merchant) {
-      const merchantRule = await SmsRepository.findRuleByMerchant(parsed.merchant);
+    // 3. MATCH BY MERCHANT (or merchantRaw)
+    if (!matchedRule && (parsed.merchant || parsed.merchantRaw)) {
+      const merchantTerm = parsed.merchant || parsed.merchantRaw!;
+      const merchantRule = await SmsRepository.findRuleByMerchant(merchantTerm);
       if (merchantRule && merchantRule.isEnabled) {
         matchedRule = merchantRule;
       }
@@ -44,7 +57,13 @@ export class RuleEngine implements IRuleEngine {
     // Apply rule category & account choices
     if (matchedRule) {
       result.matchedRuleId = matchedRule.id;
-      result.confidence = matchedRule.confidence;
+      // If we also had an account rule, take the higher confidence
+      if (acctRule && (acctRule.confidence || 0) > 0) {
+        result.confidence = Math.max(matchedRule.confidence || 0, acctRule.confidence || 0);
+      } else {
+        result.confidence = matchedRule.confidence || 0;
+      }
+
       if (matchedRule.categoryId) {
         result.matchedCategoryId = matchedRule.categoryId;
       }
@@ -96,14 +115,29 @@ export class RuleEngine implements IRuleEngine {
     if (tempTx.bankName && tempTx.accountLast4 && finalAccount) {
       const existingAcctRule = await SmsRepository.findRuleByAccount(tempTx.bankName, tempTx.accountLast4);
       if (existingAcctRule) {
-        // If user changed the account preference
-        if (existingAcctRule.preferredAccountId !== finalAccount || existingAcctRule.isTransfer !== finalIsTransfer || existingAcctRule.targetAccountId !== finalToAccount) {
+        let changed = false;
+        if (existingAcctRule.preferredAccountId !== finalAccount) {
           existingAcctRule.preferredAccountId = finalAccount;
+          changed = true;
+        }
+        if (existingAcctRule.isTransfer !== finalIsTransfer) {
           existingAcctRule.isTransfer = finalIsTransfer;
+          changed = true;
+        }
+        if (existingAcctRule.targetAccountId !== finalToAccount) {
           existingAcctRule.targetAccountId = finalToAccount;
+          changed = true;
+        }
+        if (finalCategory && existingAcctRule.categoryId !== finalCategory) {
+          existingAcctRule.categoryId = finalCategory;
+          changed = true;
+        }
+
+        if (changed) {
           existingAcctRule.acceptedCount = 1;
-          existingAcctRule.editedCount = 1;
+          existingAcctRule.editedCount = (existingAcctRule.editedCount || 0) + 1;
           await SmsRepository.saveRule(existingAcctRule);
+          await SmsRepository.recalculateConfidence(existingAcctRule.id);
         } else {
           await SmsRepository.updateRuleStats(existingAcctRule.id, decision === 'accepted' ? 'accepted' : 'edited');
         }
@@ -115,8 +149,9 @@ export class RuleEngine implements IRuleEngine {
           bankName: tempTx.bankName,
           accountLast4: tempTx.accountLast4,
           preferredAccountId: finalAccount,
+          categoryId: finalCategory || null,
           isTransfer: finalIsTransfer,
-          targetAccountId: finalToAccount,
+          targetAccountId: finalToAccount || null,
           acceptedCount: 1,
           confidence: 70, // Starter confidence
           isEnabled: true,
@@ -146,7 +181,7 @@ export class RuleEngine implements IRuleEngine {
 
         if (statsUpdated) {
           existingUpiRule.acceptedCount = 1;
-          existingUpiRule.editedCount = existingUpiRule.editedCount + 1;
+          existingUpiRule.editedCount = (existingUpiRule.editedCount || 0) + 1;
           await SmsRepository.saveRule(existingUpiRule);
           await SmsRepository.recalculateConfidence(existingUpiRule.id);
         } else {
@@ -157,10 +192,10 @@ export class RuleEngine implements IRuleEngine {
           id: `rule_upi_${uuid()}`,
           ruleType: 'UPI',
           upiId: tempTx.upiId,
-          categoryId: finalCategory,
-          preferredAccountId: finalAccount,
+          categoryId: finalCategory || null,
+          preferredAccountId: finalAccount || null,
           isTransfer: finalIsTransfer,
-          targetAccountId: finalToAccount,
+          targetAccountId: finalToAccount || null,
           acceptedCount: 1,
           confidence: 60, // Initial confidence
           isEnabled: true,
@@ -170,8 +205,9 @@ export class RuleEngine implements IRuleEngine {
     }
 
     // 3. Update/Create Merchant Rule
-    if (tempTx.merchant && (finalCategory || finalAccount || finalIsTransfer)) {
-      const existingMerchantRule = await SmsRepository.findRuleByMerchant(tempTx.merchant);
+    const merchantKey = tempTx.merchant || tempTx.merchantRaw;
+    if (merchantKey && (finalCategory || finalAccount || finalIsTransfer)) {
+      const existingMerchantRule = await SmsRepository.findRuleByMerchant(merchantKey);
       if (existingMerchantRule) {
         let statsUpdated = false;
         if (finalCategory && existingMerchantRule.categoryId !== finalCategory) {
@@ -190,7 +226,7 @@ export class RuleEngine implements IRuleEngine {
 
         if (statsUpdated) {
           existingMerchantRule.acceptedCount = 1;
-          existingMerchantRule.editedCount = existingMerchantRule.editedCount + 1;
+          existingMerchantRule.editedCount = (existingMerchantRule.editedCount || 0) + 1;
           await SmsRepository.saveRule(existingMerchantRule);
           await SmsRepository.recalculateConfidence(existingMerchantRule.id);
         } else {
@@ -200,11 +236,11 @@ export class RuleEngine implements IRuleEngine {
         const newMerchantRule = {
           id: `rule_mer_${uuid()}`,
           ruleType: 'MERCHANT',
-          merchantPattern: tempTx.merchant,
-          categoryId: finalCategory,
-          preferredAccountId: finalAccount,
+          merchantPattern: merchantKey,
+          categoryId: finalCategory || null,
+          preferredAccountId: finalAccount || null,
           isTransfer: finalIsTransfer,
-          targetAccountId: finalToAccount,
+          targetAccountId: finalToAccount || null,
           acceptedCount: 1,
           confidence: 60, // Initial confidence
           isEnabled: true,

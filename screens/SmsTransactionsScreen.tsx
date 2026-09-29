@@ -185,8 +185,11 @@ export default function SmsTransactionsScreen() {
 
     for (const tx of highConfTxs) {
       const sel = selections[tx.id];
-      if (sel && sel.accountId && sel.categoryId) {
-        await approveSmsTx(tx.id, sel.categoryId, sel.accountId);
+      if (!sel) continue;
+      if (sel.isTransfer && sel.accountId && sel.toAccountId && sel.accountId !== sel.toAccountId) {
+        await approveSmsTx(tx.id, 'transfer_cat_id', sel.accountId, true, sel.toAccountId);
+      } else if (sel.accountId && sel.categoryId) {
+        await approveSmsTx(tx.id, sel.categoryId, sel.accountId, false);
       }
     }
   };
