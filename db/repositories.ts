@@ -1,5 +1,5 @@
 import { eq, and, isNull, sql } from 'drizzle-orm';
-import { db } from './client';
+import { db, ensureStdeSchema } from './client';
 import * as schema from './schema';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
@@ -889,6 +889,7 @@ export const BillRepository = {
 export const SmsRepository = {
   // --- TEMPORARY TRANSACTIONS ---
   async getTempTransactions() {
+    ensureStdeSchema();
     if (Platform.OS === 'web') {
       return getWebList('temp_transactions');
     }
@@ -896,6 +897,7 @@ export const SmsRepository = {
   },
 
   async getPendingTransactions() {
+    ensureStdeSchema();
     if (Platform.OS === 'web') {
       return getWebList('temp_transactions').filter(t => t.status === 'PENDING');
     }
@@ -905,6 +907,7 @@ export const SmsRepository = {
   },
 
   async saveTempTransaction(data: any) {
+    ensureStdeSchema();
     const now = Date.now();
     const payload = {
       ...data,
@@ -1039,6 +1042,7 @@ export const SmsRepository = {
 
   // --- RULES ---
   async getRules() {
+    ensureStdeSchema();
     if (Platform.OS === 'web') {
       return getWebList('sms_rules');
     }
@@ -1046,6 +1050,7 @@ export const SmsRepository = {
   },
 
   async saveRule(rule: any) {
+    ensureStdeSchema();
     const now = Date.now();
     const payload = {
       ...rule,

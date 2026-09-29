@@ -28,8 +28,38 @@ if (Platform.OS !== 'web') {
     expoDb.execSync(`PRAGMA key = '${encryptionKey}';`);
 
     db = drizzle(expoDb, { schema });
+
+    // Auto-migrate STDE columns if existing tables lack them
+    ensureStdeSchema();
   } catch (err) {
     console.error('Failed to initialize native SQLite client with encryption:', err);
+  }
+}
+
+let stdeSchemaMigrated = false;
+export function ensureStdeSchema() {
+  if (stdeSchemaMigrated || Platform.OS === 'web' || !expoDb) return;
+  try {
+    const tableExists = expoDb.getFirstSync(
+      "SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='temp_transactions';"
+    ) as { count: number } | null;
+    if (tableExists && tableExists.count > 0) {
+      try {
+        expoDb.execSync(`ALTER TABLE \`temp_transactions\` ADD COLUMN \`is_transfer\` integer DEFAULT 0;`);
+      } catch (err) {}
+      try {
+        expoDb.execSync(`ALTER TABLE \`temp_transactions\` ADD COLUMN \`to_account_id\` text;`);
+      } catch (err) {}
+      try {
+        expoDb.execSync(`ALTER TABLE \`sms_rules\` ADD COLUMN \`is_transfer\` integer DEFAULT 0;`);
+      } catch (err) {}
+      try {
+        expoDb.execSync(`ALTER TABLE \`sms_rules\` ADD COLUMN \`target_account_id\` text;`);
+      } catch (err) {}
+      stdeSchemaMigrated = true;
+    }
+  } catch (err) {
+    // ignore
   }
 }
 
@@ -430,6 +460,8 @@ export async function initDb() {
             \`matched_account_id\` text,
             \`matched_category_id\` text,
             \`matched_rule_id\` text,
+            \`is_transfer\` integer DEFAULT 0,
+            \`to_account_id\` text,
             \`processed\` integer DEFAULT 0 NOT NULL,
             \`created_at\` integer NOT NULL,
             \`updated_at\` integer NOT NULL
@@ -448,6 +480,8 @@ export async function initDb() {
             \`regex_pattern\` text,
             \`category_id\` text,
             \`preferred_account_id\` text,
+            \`is_transfer\` integer DEFAULT 0,
+            \`target_account_id\` text,
             \`accepted_count\` integer DEFAULT 0 NOT NULL,
             \`edited_count\` integer DEFAULT 0 NOT NULL,
             \`rejected_count\` integer DEFAULT 0 NOT NULL,
@@ -551,6 +585,8 @@ export async function initDb() {
             \`matched_account_id\` text,
             \`matched_category_id\` text,
             \`matched_rule_id\` text,
+            \`is_transfer\` integer DEFAULT 0,
+            \`to_account_id\` text,
             \`processed\` integer DEFAULT 0 NOT NULL,
             \`created_at\` integer NOT NULL,
             \`updated_at\` integer NOT NULL
@@ -567,6 +603,8 @@ export async function initDb() {
             \`regex_pattern\` text,
             \`category_id\` text,
             \`preferred_account_id\` text,
+            \`is_transfer\` integer DEFAULT 0,
+            \`target_account_id\` text,
             \`accepted_count\` integer DEFAULT 0 NOT NULL,
             \`edited_count\` integer DEFAULT 0 NOT NULL,
             \`rejected_count\` integer DEFAULT 0 NOT NULL,
@@ -593,6 +631,9 @@ export async function initDb() {
         `);
         expoDb.execSync(`CREATE INDEX IF NOT EXISTS \`idx_temp_transactions_date\` ON \`temp_transactions\` (\`transaction_date\`);`);
         expoDb.execSync(`CREATE INDEX IF NOT EXISTS \`idx_temp_transactions_status\` ON \`temp_transactions\` (\`status\`);`);
+        
+        // Migrate columns if table already existed without them
+        ensureStdeSchema();
         console.log('STDE tables created successfully for existing database.');
       } catch (err) {
         console.error('Failed to create STDE tables for existing database:', err);

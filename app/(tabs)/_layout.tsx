@@ -47,20 +47,20 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="reports"
+        name="accounts"
         options={{
-          title: 'Analytics',
+          title: 'Accounts',
           tabBarIcon: ({ color }) => (
-            <MaterialCommunityIcons name="chart-arc" size={24} color={color} />
+            <MaterialCommunityIcons name="wallet-outline" size={24} color={color} />
           ),
         }}
       />
       <Tabs.Screen
-        name="budgets"
+        name="categories"
         options={{
-          title: 'Planning',
+          title: 'Categories',
           tabBarIcon: ({ color }) => (
-            <MaterialCommunityIcons name="calendar-range" size={24} color={color} />
+            <MaterialCommunityIcons name="shape-outline" size={24} color={color} />
           ),
         }}
       />
@@ -71,6 +71,18 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => (
             <MaterialCommunityIcons name="cog-outline" size={24} color={color} />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="reports"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="budgets"
+        options={{
+          href: null,
         }}
       />
     </Tabs>

@@ -592,20 +592,60 @@ export default function MoreScreen() {
           titleStyle={{ color: activeColors.text }}
           descriptionStyle={{ color: activeColors.textSecondary }}
         />
+      </List.Section>
 
+      {/* Financial Tools: Reports & Budgets */}
+      <List.Section
+        title="Planning & Analytics"
+        titleStyle={{ color: activeColors.primary, fontWeight: "bold" }}
+      >
         <List.Item
-          title="Send Test Notification"
-          description="Trigger an immediate test alert (2s delay)"
+          title="Analytics & Reports"
+          description="Spending breakdowns, charts, and trends"
           left={(props) => (
             <List.Icon
               {...props}
-              icon="alert-circle-outline"
+              icon="chart-arc"
               color={activeColors.text}
             />
           )}
-          onPress={async () => {
-            await NotificationService.sendTestNotification();
-          }}
+          onPress={() => router.push("/reports")}
+          right={(props) => (
+            <List.Icon
+              {...props}
+              icon="chevron-right"
+              color={activeColors.textSecondary}
+            />
+          )}
+          style={[
+            styles.listItem,
+            {
+              backgroundColor: activeColors.surface,
+              borderColor: activeColors.border,
+            },
+          ]}
+          titleStyle={{ color: activeColors.text }}
+          descriptionStyle={{ color: activeColors.textSecondary }}
+        />
+
+        <List.Item
+          title="Budgets & Goals"
+          description="Manage monthly budgets and savings targets"
+          left={(props) => (
+            <List.Icon
+              {...props}
+              icon="calendar-range"
+              color={activeColors.text}
+            />
+          )}
+          onPress={() => router.push("/budgets")}
+          right={(props) => (
+            <List.Icon
+              {...props}
+              icon="chevron-right"
+              color={activeColors.textSecondary}
+            />
+          )}
           style={[
             styles.listItem,
             {

@@ -37,7 +37,7 @@ const CURATED_COLORS = [
   '#4B5563', // Slate Gray
 ];
 
-export default function ManageCategoriesOverlay() {
+export default function ManageCategoriesOverlay({ isTab = false }: { isTab?: boolean }) {
   const router = useRouter();
   const { categories, theme, refreshCategories, showToast } = useAppStore();
   const activeColors = ThemeColors[theme];
@@ -142,8 +142,12 @@ export default function ManageCategoriesOverlay() {
     <View style={[styles.container, { backgroundColor: activeColors.background }]}>
       {/* Header bar */}
       <View style={styles.header}>
-        <IconButton icon="close" size={24} iconColor={activeColors.text} onPress={() => router.back()} />
-        <Text style={[styles.title, { color: activeColors.text }]}>Manage Categories</Text>
+        {!isTab ? (
+          <IconButton icon="close" size={24} iconColor={activeColors.text} onPress={() => router.back()} />
+        ) : (
+          <View style={{ width: 8 }} />
+        )}
+        <Text style={[styles.title, { color: activeColors.text, marginLeft: isTab ? 12 : 0 }]}>Categories</Text>
         <IconButton icon="plus" size={24} iconColor={activeColors.primary} onPress={handleOpenAdd} />
       </View>
 
@@ -272,9 +276,13 @@ export default function ManageCategoriesOverlay() {
             ))}
           </ScrollView>
 
-          {/* Icon Select */}
-          <Text style={[styles.fieldLabel, { color: activeColors.textSecondary }]}>Category Icon</Text>
-          <ScrollView style={styles.iconGridScroll}>
+          {/* Icon Select (2 rows) */}
+          <Text style={[styles.fieldLabel, { color: activeColors.textSecondary }]}>Category Icon (Scroll for more)</Text>
+          <ScrollView
+            style={styles.iconGridScroll}
+            nestedScrollEnabled={true}
+            showsVerticalScrollIndicator={true}
+          >
             <View style={styles.iconGrid}>
               {AVAILABLE_ICONS.map(i => (
                 <TouchableOpacity
@@ -427,8 +435,9 @@ const styles = StyleSheet.create({
     borderWidth: 3,
   },
   iconGridScroll: {
-    maxHeight: 300,
-    marginBottom: 16,
+    height: 108,
+    maxHeight: 108,
+    marginBottom: 12,
   },
   iconGrid: {
     flexDirection: 'row',

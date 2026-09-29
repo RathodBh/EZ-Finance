@@ -7,14 +7,6 @@ import { formatCurrency } from '../services/utils';
 import { useRouter } from 'expo-router';
 import SlideUpModal from '../components/SlideUpModal';
 
-const PRESET_TEST_SMS = [
-  { bank: 'HDFC Bank', text: 'Alert: Your HDFC Bank Debit Card ending in 4321 was spent at Swiggy for Rs. 450.00 on 16-07-2026. Avl Bal: Rs. 38,200.', sender: 'HDFCBK' },
-  { bank: 'SBI UPI', text: 'SBI SMS: Dear Customer, your A/c ending 1234 has been debited by Rs 1,499.00 on 16-07-26 via UPI to Amazon@okhdfc. Ref 601293810.', sender: 'SBIINB' },
-  { bank: 'ICICI Credit', text: 'Transaction Alert: INR 2,500.00 credited to ICICI Bank A/c xx8899 on 16/07/26 from friend@okaxis. Ref: 9812739.', sender: 'ICICIB' },
-  { bank: 'Kotak UPI', text: 'Kotak Bank Info: Rs. 280.00 spent at Starbucks via UPI. Ref No: 1092837192. Avl Balance: Rs. 15,290.00.', sender: 'KOTAKB' },
-  { bank: 'Self Transfer', text: 'HDFC Bank: Rs 5,000.00 debited for Transfer to ICICI Bank A/c xx8899 on 16-07-2026. Ref UPI/Self-Transfer.', sender: 'HDFCBK' },
-];
-
 export default function SmsTransactionsScreen() {
   const router = useRouter();
   const {
@@ -213,6 +205,41 @@ export default function SmsTransactionsScreen() {
     setCustomSmsInput('');
   };
 
+  const handleScanInboxClick = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const { PermissionsAndroid } = require('react-native');
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.READ_SMS,
+          {
+            title: 'SMS Access Permission',
+            message: 'EZ Finance needs SMS access to automatically detect and parse bank transaction alerts.',
+            buttonPositive: 'Allow',
+            buttonNegative: 'Cancel',
+          }
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          showToast('SMS permission was denied. You can paste SMS manually.', 'info');
+          return;
+        }
+      } catch (e) {
+        console.warn('Error requesting SMS permission:', e);
+      }
+    }
+
+    Alert.alert(
+      'SMS Inbox Scanner',
+      'Direct inbox scanning is restricted by Android security policies without the native background reader module.\n\nWould you like to paste a bank transaction SMS to test the parser now?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Paste SMS',
+          onPress: () => setShowCustomSmsModal(true),
+        },
+      ]
+    );
+  };
+
   const getConfidenceColor = (score: number) => {
     if (score >= 80) return '#4caf50'; // Green
     if (score >= 60) return '#ff9800'; // Amber
@@ -274,24 +301,24 @@ export default function SmsTransactionsScreen() {
         <View style={styles.actionsBar}>
           <Button
             mode="contained"
-            loading={smsProcessing}
-            disabled={smsProcessing}
-            icon="sync"
-            onPress={() => processSmsInbox()}
+            icon="card-text-outline"
+            onPress={() => setShowCustomSmsModal(true)}
             style={[styles.actionBtn, { backgroundColor: activeColors.primary }]}
             labelStyle={{ color: activeColors.background, fontWeight: 'bold' }}
           >
-            {Platform.OS === 'web' ? 'Simulate 5 Bank SMS' : 'Scan Inbox SMS'}
+            Paste Bank SMS
           </Button>
 
           <Button
             mode="outlined"
-            icon="card-text-outline"
-            onPress={() => setShowCustomSmsModal(true)}
+            loading={smsProcessing}
+            disabled={smsProcessing}
+            icon="sync"
+            onPress={handleScanInboxClick}
             style={[styles.actionBtnOutline, { borderColor: activeColors.primary }]}
             labelStyle={{ color: activeColors.primary, fontWeight: 'bold' }}
           >
-            Paste SMS
+            Scan Inbox SMS
           </Button>
         </View>
 
@@ -314,24 +341,17 @@ export default function SmsTransactionsScreen() {
             <IconButton icon="message-draw" size={64} iconColor={activeColors.border} />
             <Text style={[styles.emptyTitle, { color: activeColors.text }]}>All Caught Up!</Text>
             <Text style={[styles.emptySubtitle, { color: activeColors.textSecondary }]}>
-              There are no bank transaction messages in your review queue. Scan simulated messages or paste your own SMS text to test.
+              There are no bank transaction messages in your review queue. Paste your bank SMS text to test parsing.
             </Text>
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
               <Button
                 mode="contained"
-                icon="play-circle-outline"
-                onPress={() => processSmsInbox()}
-                labelStyle={{ fontWeight: 'bold' }}
-              >
-                Load Preset Mock SMS
-              </Button>
-              <Button
-                mode="outlined"
-                icon="pencil-outline"
+                icon="card-text-outline"
                 onPress={() => setShowCustomSmsModal(true)}
-                labelStyle={{ fontWeight: 'bold' }}
+                style={{ backgroundColor: activeColors.primary }}
+                labelStyle={{ fontWeight: 'bold', color: activeColors.background }}
               >
-                Paste Custom SMS
+                Paste Bank SMS
               </Button>
             </View>
           </View>
@@ -621,31 +641,10 @@ export default function SmsTransactionsScreen() {
         indicatorColor={activeColors.border}
       >
         <View style={{ padding: 20, paddingBottom: 40 }}>
-          <Text style={[styles.modalTitle, { color: activeColors.text }]}>🧪 Test Custom SMS Parser</Text>
-          
-          <Text style={{ fontSize: 12, color: activeColors.textSecondary, marginBottom: 8, fontWeight: 'bold' }}>
-            QUICK PRESETS (Tap to test):
+          <Text style={[styles.modalTitle, { color: activeColors.text }]}>💬 Parse Bank Transaction SMS</Text>
+          <Text style={{ fontSize: 13, color: activeColors.textSecondary, marginBottom: 14 }}>
+            Paste any bank debit or credit SMS message below to parse and record it.
           </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-            {PRESET_TEST_SMS.map((preset, idx) => (
-              <TouchableOpacity
-                key={idx}
-                onPress={() => {
-                  setCustomSmsInput(preset.text);
-                  setCustomSenderInput(preset.sender);
-                }}
-                style={{
-                  backgroundColor: theme === 'dark' ? '#2c2c2e' : '#e5e5ea',
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  borderRadius: 8,
-                  marginRight: 8,
-                }}
-              >
-                <Text style={{ color: activeColors.text, fontSize: 12, fontWeight: 'bold' }}>{preset.bank}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
 
           <Text style={{ fontSize: 12, color: activeColors.textSecondary, marginBottom: 4, fontWeight: 'bold' }}>
             Sender Header ID:

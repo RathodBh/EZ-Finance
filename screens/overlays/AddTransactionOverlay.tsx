@@ -7,6 +7,7 @@ import { ThemeColors } from '../../styles/theme';
 
 import { useRouter } from 'expo-router';
 import SlideUpModal from '../../components/SlideUpModal';
+import DateTimePickerModal from '../../components/DateTimePickerModal';
 import { formatCurrency, getCurrencySymbol } from '../../services/utils';
 
 export default function AddTransactionOverlay() {
@@ -17,6 +18,10 @@ export default function AddTransactionOverlay() {
   // Forms states
   const [type, setType] = useState<'INCOME' | 'EXPENSE' | 'TRANSFER'>(activeTxToEdit?.type || 'EXPENSE');
   const [amount, setAmount] = useState(activeTxToEdit ? String(activeTxToEdit.amount) : '');
+  const [txDate, setTxDate] = useState<Date>(() =>
+    activeTxToEdit?.date ? new Date(activeTxToEdit.date) : new Date()
+  );
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const defaultAccount = useMemo(() => accounts.find(a => a.isDefault) || accounts[0], [accounts]);
   const [accountId, setAccountId] = useState(activeTxToEdit?.accountId || defaultAccount?.id || '');
@@ -100,6 +105,7 @@ export default function AddTransactionOverlay() {
           note: note.trim() || null,
           merchant: merchant.trim() || null,
           paymentMethod: type === 'TRANSFER' ? 'TRANSFER' : paymentMethod,
+          date: txDate.getTime(),
         };
 
         if (type === 'TRANSFER') {
@@ -119,7 +125,7 @@ export default function AddTransactionOverlay() {
           note: note.trim() || null,
           merchant: merchant.trim() || null,
           paymentMethod: type === 'TRANSFER' ? 'TRANSFER' : paymentMethod,
-          date: Date.now(),
+          date: txDate.getTime(),
           isRecurring: false,
           isFavorite: false,
         };
@@ -238,6 +244,22 @@ export default function AddTransactionOverlay() {
           </>
         )}
 
+        {/* Date & Time Selector */}
+        <Text style={[styles.sectionLabel, { color: activeColors.textSecondary }]}>Date & Time</Text>
+        <TouchableOpacity
+          onPress={() => setShowDatePicker(true)}
+          style={[styles.dateTimeBox, { borderColor: activeColors.border, backgroundColor: activeColors.surface }]}
+          activeOpacity={0.7}
+        >
+          <View style={styles.dateTimeInner}>
+            <IconButton icon="calendar-clock" iconColor={activeColors.primary} size={22} style={{ margin: 0, marginRight: 8 }} />
+            <Text style={{ color: activeColors.text, fontSize: 14, fontWeight: '500' }}>
+              {txDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} • {txDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          </View>
+          <IconButton icon="pencil-outline" iconColor={activeColors.textSecondary} size={20} style={{ margin: 0 }} />
+        </TouchableOpacity>
+
         {/* Note / Description */}
         <TextInput
           label="Note / Description"
@@ -246,7 +268,7 @@ export default function AddTransactionOverlay() {
           mode="outlined"
           activeOutlineColor={activeColors.primary}
           textColor={activeColors.text}
-          style={[styles.input, { backgroundColor: activeColors.surface, marginTop: 14 }]}
+          style={[styles.input, { backgroundColor: activeColors.surface, marginTop: 4 }]}
         />
 
         {/* Merchant Name */}
@@ -363,6 +385,18 @@ export default function AddTransactionOverlay() {
           </ScrollView>
         </View>
       </SlideUpModal>
+
+      {/* Date & Time Picker Modal */}
+      <DateTimePickerModal
+        visible={showDatePicker}
+        initialDate={txDate}
+        onConfirm={(newDate) => {
+          setTxDate(newDate);
+          setShowDatePicker(false);
+        }}
+        onCancel={() => setShowDatePicker(false)}
+        activeColors={activeColors}
+      />
     </View>
   );
 }
@@ -414,6 +448,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
+  },
+  dateTimeBox: {
+    height: 48,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingLeft: 10,
+    paddingRight: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  dateTimeInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   saveBtn: {
     marginTop: 20,

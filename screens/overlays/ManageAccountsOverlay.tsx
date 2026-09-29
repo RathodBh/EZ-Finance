@@ -9,7 +9,7 @@ import SlideUpModal from '../../components/SlideUpModal';
 import { formatCurrency, getCurrencySymbol } from '../../services/utils';
 import PremiumSwitch from '../../components/PremiumSwitch';
 
-export default function ManageAccountsOverlay() {
+export default function ManageAccountsOverlay({ isTab = false }: { isTab?: boolean }) {
   const router = useRouter();
   const { accounts, transactions, theme, refreshAccounts, refreshTransactions, currency, showToast } = useAppStore();
   const activeColors = ThemeColors[theme];
@@ -221,9 +221,13 @@ export default function ManageAccountsOverlay() {
     <View style={[styles.container, { backgroundColor: activeColors.background }]}>
       {/* Header bar */}
       <View style={[styles.header, { borderBottomColor: activeColors.border }]}>
-        <IconButton icon="arrow-left" size={24} iconColor={activeColors.text} onPress={() => router.back()} />
-        <Text style={[styles.title, { color: activeColors.text }]}>Accounts</Text>
-        <View style={{ width: 48 }} />
+        {!isTab ? (
+          <IconButton icon="arrow-left" size={24} iconColor={activeColors.text} onPress={() => router.back()} />
+        ) : (
+          <View style={{ width: 8 }} />
+        )}
+        <Text style={[styles.title, { color: activeColors.text, marginLeft: isTab ? 12 : 0 }]}>Accounts</Text>
+        <IconButton icon="plus" size={24} iconColor={activeColors.primary} onPress={handleOpenAdd} />
       </View>
       
       <ScrollView contentContainerStyle={styles.listContent}>

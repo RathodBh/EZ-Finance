@@ -735,7 +735,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().smsProcessing) return;
     set({ smsProcessing: true });
     try {
-      const listToProcess = mockSmsList || smsServiceInstance.getMockSmsList();
+      const listToProcess = mockSmsList && mockSmsList.length > 0 ? mockSmsList : [];
+      if (listToProcess.length === 0) {
+        get().showToast('No SMS text provided. Please paste your bank SMS to test.', 'info');
+        return;
+      }
       const result = await smsServiceInstance.processSmsInbox(listToProcess);
       
       await get().refreshSmsData();

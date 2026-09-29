@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, Alert, Platform } from 'react-native';
-import { Text, Searchbar, Chip, IconButton, Card } from 'react-native-paper';
+import { View, StyleSheet, FlatList, TouchableOpacity, Alert, Platform, ScrollView } from 'react-native';
+import { Text, Searchbar, IconButton, Card } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useAppStore } from '../store/appStore';
 import { TransactionRepository } from '../db/repositories';
@@ -121,25 +121,47 @@ export default function TransactionsScreen() {
         />
       </View>
 
-      {/* Filter Chips row */}
-      <View style={styles.filterRow}>
-        {(['ALL', 'INCOME', 'EXPENSE', 'TRANSFER'] as const).map((filter) => (
-          <Chip
-            key={filter}
-            selected={activeFilter === filter}
-            onPress={() => setActiveFilter(filter)}
-            style={[
-              styles.chip,
-              activeFilter === filter 
-                ? { backgroundColor: activeColors.primary } 
-                : { backgroundColor: activeColors.surface }
-            ]}
-            selectedColor={activeFilter === filter ? activeColors.background : activeColors.text}
-            showSelectedOverlay
-          >
-            {filter}
-          </Chip>
-        ))}
+      {/* Filter Tabs row - scrollable without shifting the mobile page */}
+      <View style={styles.filterContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScroll}
+          bounces={false}
+          overScrollMode="never"
+        >
+          {([
+            { id: 'ALL', label: 'All' },
+            { id: 'INCOME', label: 'Income' },
+            { id: 'EXPENSE', label: 'Expense' },
+            { id: 'TRANSFER', label: 'Transfer' },
+          ] as const).map((filter) => {
+            const isSelected = activeFilter === filter.id;
+            return (
+              <TouchableOpacity
+                key={filter.id}
+                onPress={() => setActiveFilter(filter.id)}
+                style={[
+                  styles.filterTab,
+                  isSelected
+                    ? { backgroundColor: activeColors.primary, borderColor: activeColors.primary }
+                    : { backgroundColor: activeColors.surface, borderColor: activeColors.border }
+                ]}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.filterTabText,
+                    { color: isSelected ? activeColors.background : activeColors.textSecondary },
+                    isSelected && { fontWeight: '700' }
+                  ]}
+                >
+                  {filter.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {/* Date Filter Row */}
@@ -268,14 +290,27 @@ const styles = StyleSheet.create({
     elevation: 0,
     borderRadius: 12,
   },
-  filterRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
+  filterContainer: {
     marginBottom: 12,
-    gap: 8,
+    width: '100%',
   },
-  chip: {
-    borderRadius: 8,
+  filterScroll: {
+    paddingHorizontal: 20,
+    gap: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  filterTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterTabText: {
+    fontSize: 13,
+    fontWeight: '500',
   },
   dateFilterRow: {
     flexDirection: 'row',
